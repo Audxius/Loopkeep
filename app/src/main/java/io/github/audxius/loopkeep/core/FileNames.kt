@@ -12,7 +12,8 @@ object FileNames {
         val handle = sanitize(authorHandle.orEmpty()).take(30)
         val words = captionWords(caption.orEmpty())
         val shortId = tiktokId.filter { it.isDigit() }.takeLast(6).ifEmpty { sanitize(tiktokId).take(12) }
-        val parts = listOf(handle, words, shortId).filter { it.isNotBlank() }
+        // Without author or caption, a bare number is a poor name; say what it is.
+        val parts = listOf(handle.ifBlank { if (words.isBlank()) "tiktok" else "" }, words, shortId).filter { it.isNotBlank() }
         val base = truncateBytes(parts.joinToString(" - "), MAX_BYTES).trim(' ', '-', '.')
         return (base.ifBlank { "tiktok $shortId" }) + ".md"
     }
@@ -43,7 +44,7 @@ object FileNames {
      * everything that Windows, Android, or Obsidian links choke on (`\ / : * ? " < > | # ^ [ ]`).
      */
     fun sanitize(input: String): String {
-        val normalized = Normalizer.normalize(input, Normalizer.Form.NFC)
+        val normalized = Normalizer.normalize(input, Normalizer.Form.NFC).replace('\u2019', '\'').replace('\u02BC', '\'')
         val sb = StringBuilder()
         var i = 0
         while (i < normalized.length) {

@@ -29,8 +29,9 @@ class FileNamesTest {
     }
 
     @Test fun emptyEverything() {
-        assertEquals("111111.md", FileNames.noteFileName(null, null, "111111"))
-        assertEquals("111111.md", FileNames.noteFileName("", "🔥🔥🔥", "111111"))
+        assertEquals("tiktok - 111111.md", FileNames.noteFileName(null, null, "111111"))
+        assertEquals("tiktok - 111111.md", FileNames.noteFileName("", "🔥🔥🔥", "111111"))
+        assertEquals("caption only - 111111.md", FileNames.noteFileName("", "caption only", "111111"))
     }
 
     @Test fun lengthIsCappedInBytes() {
@@ -41,6 +42,10 @@ class FileNamesTest {
     @Test fun noLeadingDotOrDash() {
         assertTrue(!FileNames.noteFileName(".hidden", null, "1").startsWith("."))
         assertTrue(!FileNames.noteFileName("-", "-", "1").startsWith("-"))
+    }
+
+    @Test fun curlyApostropheKept() {
+        assertEquals("u - I'll try - 111111.md", FileNames.noteFileName("u", "I\u2019ll try", "111111"))
     }
 
     @Test fun uniqueSuffix() {
