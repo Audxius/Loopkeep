@@ -216,6 +216,9 @@ private fun VideoSurface(item: VideoEntity, player: ExoPlayer, isCurrent: Boolea
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { playing = playWhenReady }
         }
         player.addListener(listener)
+        // Catch up on anything that happened before the listener was attached.
+        playing = player.playWhenReady
+        if (player.videoSize.width > 0) showPoster = false
         onDispose { player.removeListener(listener) }
     }
     Box(
@@ -285,7 +288,7 @@ private fun CaptionOverlay(item: VideoEntity, modifier: Modifier) {
     Column(modifier.navigationBarsPadding().padding(start = 14.dp, bottom = 24.dp)) {
         val handle = item.authorHandle.ifBlank { null }?.let { "@$it" }
         Text(
-            listOfNotNull(handle ?: item.author.ifBlank { null }, item.saved?.let { "· saved $it" }).joinToString(" "),
+            listOfNotNull(handle ?: item.author.ifBlank { null }, item.saved?.let { "saved $it" }).joinToString(" · "),
             color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp,
         )
         Spacer(Modifier.height(4.dp))

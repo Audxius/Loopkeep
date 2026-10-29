@@ -32,13 +32,18 @@ class PlayerPool(context: Context, initiallyMuted: Boolean) {
 
     fun playerFor(page: Int): ExoPlayer = slots[page.mod(SIZE)].player
 
+    // The page that should be playing. Pages may load after being activated (the pager composes
+    // them later than the screen's effects run), so prepare() checks this too.
+    private var activePage: Int? = null
+    private var activeUri: String? = null
+
     /** Loads [uri] into the page's slot if it isn't already there. Cheap to call repeatedly. */
     fun prepare(page: Int, uri: String) {
         val slot = slots[page.mod(SIZE)]
         if (slot.uri == uri) return
         slot.uri = uri
         slot.player.apply {
-            playWhenReady = false
+            playWhenReady = page == activePage && uri == activeUri
             setMediaItem(MediaItem.fromUri(uri))
             prepare()
         }
@@ -49,6 +54,8 @@ class PlayerPool(context: Context, initiallyMuted: Boolean) {
      * page loaded, so a text-only page never plays a stale video left in its slot.
      */
     fun activate(page: Int?, uri: String?) {
+        activePage = page
+        activeUri = uri
         slots.forEachIndexed { i, slot ->
             if (page != null && uri != null && i == page.mod(SIZE) && slot.uri == uri) {
                 slot.player.seekTo(0)
@@ -59,7 +66,11 @@ class PlayerPool(context: Context, initiallyMuted: Boolean) {
         }
     }
 
-    fun pauseAll() = slots.forEach { it.player.playWhenReady = false }
+    fun pauseAll() {
+        activePage = null
+        activeUri = null
+        slots.forEach { it.player.playWhenReady = false }
+    }
 
     fun release() = slots.forEach { it.player.release() }
 
