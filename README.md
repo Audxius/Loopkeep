@@ -57,6 +57,7 @@ Best pasta ever 🍝 #recipe #pasta
    - **Paste** links in Settings.
 3. Downloads run in the background, one at a time, a few seconds apart, with a progress notification. The download icon in the top bar shows the queue: failures, retries, and a *Retry failed* button.
 4. Tap a thumbnail to watch from there; swipe up/down. Tap to pause, drag the thin bar at the bottom to seek, and tap the caption to expand it (the text is selectable). The pencil edits tags and notes. The feed follows the current search, filters and order (newest, oldest, or shuffled).
+   To delete a video (note + files), tap the trash button in the feed or long-press it in the grid.
 
 Edits made in Obsidian show up the next time you open the app (it rescans changed notes on start).
 *Settings → Rescan folder* rebuilds everything from the files.

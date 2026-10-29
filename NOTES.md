@@ -28,7 +28,7 @@ TikTok link ─┬─ share sheet (ShareActivity)
 | `ui/` | Compose screens; `PlayerPool` (3 ExoPlayers for previous/current/next) | No |
 
 ### Processing one item (`pipeline/Processor`)
-1. Short link → follow redirects until a URL contains an ID. Canonical URL is `https://www.tiktok.com/@<handle>/video/<id>` (empty handle works with yt-dlp).
+1. Short link → follow redirects until a URL contains an ID. Everything is fetched through `https://www.tiktok.com/@<handle>/video/<id>` (empty handle works with yt-dlp), **also for photo posts**: yt-dlp rejects `/photo/` URLs and TikTok's `/photo/` page carries no post data, while the `/video/` URL gives yt-dlp metadata + audio and a page with the images. The note keeps the real `/photo/` link.
 2. Skip if a `full` note already exists (unless it's a user retry).
 3. yt-dlp: best single-file format, H.264 preferred (`-f "b[vcodec!=none]/b" -S vcodec:h264,res:1080`), plus `--write-info-json`. No ffmpeg needed.
 4. If there is no video (failure, or a slideshow), fetch the post page and parse TikTok's embedded state JSON (`__UNIVERSAL_DATA_FOR_REHYDRATION__`): caption, author, date, covers, slideshow images, and `statusCode`.
@@ -65,6 +65,8 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 **Data and behaviour**
 - **oEmbed is degraded.** Observed live on 2026-10-29: `https://www.tiktok.com/oembed` now returns only an iframe player, with no `title`, `author_name` or `thumbnail_url`, and HTTP 200 even for deleted posts. So the text-only fallback reads the post page's embedded JSON instead; oEmbed stays as a last resort in case the old fields come back.
 - **"Unavailable" is decided only by TikTok's page `statusCode`** (0 = OK, 10204 = doesn't exist, etc.). yt-dlp's error text is unreliable: for a deleted post it reported "Your IP address is blocked from accessing this post".
+- A page with no post data never counts as a result (v0.1.1 wrote empty "text-only" notes for photo posts because of this). On start, the app re-queues any text-only note that has neither caption nor cover, once.
+- **Delete** (feed trash button, or long-press in the grid) removes the note, every media file it references, its index row and its queue history. Re-importing the export would download it again.
 - If nothing at all can be fetched (network, captcha page), the item is retried with backoff (1 min doubling, capped at 6 h, ±20 % jitter) and marked **failed** after 6 attempts **without writing a note**. It shows in the queue with the error and can be retried. I didn't want to write misleading notes.
 - Queue: one item at a time, 2.5–6 s random pause between items, WorkManager with a network constraint, foreground notification (dataSync). Interrupted items go back to pending. Below 300 MB free (app cache), downloads pause 30 min.
 - yt-dlp auto-updates at most every 3 days at the start of a batch (switch in Settings). There's also a manual "Update yt-dlp now".
@@ -88,7 +90,6 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 
 ## Known issues / limitations
 
-- **Slideshows (photo posts) are unverified** against a live post. The page-JSON path (`imagePost.images[].imageURL.urlList`) follows yt-dlp's own extractor and is unit-tested on a synthetic fixture only.
 - **Short links (`vm.tiktok.com/…`) are unverified live.** The redirect follower is generic; an expired short link redirects to the TikTok home page and ends as "Not a TikTok post link".
 - **TikTok export format is unverified.** No real export was available (`samples/` was empty). The parser is schema-agnostic and tested on synthetic JSON/TXT/HTML/ZIP shaped like the publicly described export.
 - The page fallback can be defeated by TikTok serving a captcha or a region block. Those items retry and eventually fail.
