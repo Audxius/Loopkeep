@@ -256,7 +256,7 @@ private fun GridCell(item: VideoEntity, onClick: () -> Unit) {
             AsyncImage(model = item.coverUri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
             Text(
-                item.caption.ifBlank { item.authorHandle },
+                item.caption.ifBlank { item.authorHandle.ifBlank { statusLabel(item.status) } },
                 color = Color.White, fontSize = 11.sp, maxLines = 6, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(6.dp),
             )
