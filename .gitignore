@@ -1,0 +1,30 @@
+# Build output
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+local.properties
+
+# Secrets: never commit signing material
+*.jks
+*.keystore
+keystore.properties
+signing/
+.env
+
+# Real TikTok data used for local testing
+samples/
+
+# Personal Claude Code overrides
+.claude/settings.local.json
