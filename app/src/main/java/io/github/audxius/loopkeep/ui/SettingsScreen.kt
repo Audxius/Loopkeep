@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
@@ -139,6 +140,14 @@ fun SettingsScreen(vm: AppViewModel) {
                             Text("Add", color = if (link.isNotBlank()) Brand.Coral else Brand.TextTertiary)
                         }
                     }
+                }
+
+                SectionCard("Creators") {
+                    SettingRow(
+                        Icons.AutoMirrored.Outlined.Comment, "Fetch creator comments & links",
+                        "For posts you already saved: the creator's own comments and replies, and the link in their bio. Nothing is re-downloaded.",
+                        onClick = vm::refreshCreatorInfo, iconTint = Brand.Peach,
+                    ) { Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary) }
                 }
 
                 SectionCard("Folder") {

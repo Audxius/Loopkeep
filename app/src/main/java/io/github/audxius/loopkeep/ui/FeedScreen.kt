@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -45,6 +46,8 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.CollectionsBookmark
@@ -95,7 +98,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
+import io.github.audxius.loopkeep.core.CreatorCommentsMarkdown
 import io.github.audxius.loopkeep.core.NoteStatus
+import io.github.audxius.loopkeep.core.TikTokUrls
 import io.github.audxius.loopkeep.core.PostType
 import io.github.audxius.loopkeep.data.VideoEntity
 import kotlinx.coroutines.delay
@@ -134,6 +139,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
     val pagerState = rememberPagerState(initialPage = startIndex) { order.size }
     var editing by remember { mutableStateOf<VideoEntity?>(null) }
     var deleting by remember { mutableStateOf<VideoEntity?>(null) }
+    var commentsFor by remember { mutableStateOf<VideoEntity?>(null) }
     var resumed by remember { mutableStateOf(true) }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -151,8 +157,8 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
 
     val current = pagerState.settledPage.coerceAtMost(order.lastIndex)
     val currentUri = byId[order[current]]?.playableUri()
-    LaunchedEffect(current, currentUri, resumed, editing) {
-        if (resumed && editing == null) pool.activate(current, currentUri) else pool.pauseAll()
+    LaunchedEffect(current, currentUri, resumed, editing, commentsFor) {
+        if (resumed && editing == null && commentsFor == null) pool.activate(current, currentUri) else pool.pauseAll()
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -179,6 +185,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
                 onDelete = { deleting = item },
                 onRetry = { vm.retry(item) },
                 onCollection = { name -> vm.setCollection(name); vm.back() },
+                onComments = { commentsFor = item },
             )
         }
 
@@ -204,6 +211,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
     editing?.let { e ->
         EditSheet(vm, byId[e.tiktokId] ?: e, onDismiss = { editing = null })
     }
+    commentsFor?.let { c -> CreatorCommentsSheet(c, onDismiss = { commentsFor = null }) }
     deleting?.let { d ->
         DeleteDialog(d, onConfirm = {
             vm.delete(d)
@@ -224,6 +232,7 @@ private fun FeedPage(
     onDelete: () -> Unit,
     onRetry: () -> Unit,
     onCollection: (String) -> Unit,
+    onComments: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
         when {
@@ -236,7 +245,7 @@ private fun FeedPage(
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x66000000), Color(0xCC000000)))),
         )
         CaptionOverlay(item, onCollection, Modifier.align(Alignment.BottomStart).padding(end = 76.dp))
-        SideActions(item, player != null, muted, onToggleMute, onEdit, onDelete, Modifier.align(Alignment.BottomEnd))
+        SideActions(item, player != null, muted, onToggleMute, onEdit, onDelete, onComments, Modifier.align(Alignment.BottomEnd))
         if (player != null && item.type == PostType.VIDEO.value) {
             SeekBar(player, isCurrent, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
         }
@@ -334,8 +343,15 @@ private fun SeekBar(player: ExoPlayer, isCurrent: Boolean, modifier: Modifier) {
 private fun CaptionOverlay(item: VideoEntity, onCollection: (String) -> Unit, modifier: Modifier) {
     var expanded by remember(item.tiktokId) { mutableStateOf(false) }
     val shadow = TextStyle(shadow = overlayShadow)
+    val context = LocalContext.current
     Column(modifier.navigationBarsPadding().padding(start = 16.dp, bottom = 28.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Tap the creator to open their TikTok profile.
+        Row(
+            Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = item.authorHandle.isNotBlank()) {
+                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, TikTokUrls.profileUrl(item.authorHandle).toUri())) }
+            }.padding(end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             val name = item.authorHandle.ifBlank { item.author }
             if (name.isNotBlank()) {
                 Avatar(name, 34.dp)
@@ -349,6 +365,25 @@ private fun CaptionOverlay(item: VideoEntity, onCollection: (String) -> Unit, mo
                 Text(
                     listOfNotNull(item.saved?.let { "Saved $it" }, item.posted?.let { "posted $it" }).joinToString(" · "),
                     color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, style = shadow,
+                )
+            }
+            if (item.authorHandle.isNotBlank()) {
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, "Open profile", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.padding(start = 8.dp).size(14.dp))
+            }
+        }
+        item.authorLink?.let { link ->
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.clip(CircleShape).background(Color(0x4D000000)).clickable {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, link.toUri())) }
+                }.padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Link, null, tint = Brand.Peach, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    link.removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/'),
+                    color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp),
                 )
             }
         }
@@ -412,6 +447,7 @@ private fun SideActions(
     onToggleMute: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onComments: () -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -423,6 +459,8 @@ private fun SideActions(
         if (hasSound) {
             SideAction(if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, if (muted) "Muted" else "Sound", onToggleMute)
         }
+        val commentCount = remember(item.creatorComments) { CreatorCommentsMarkdown.parse(item.creatorComments).size }
+        if (commentCount > 0) SideAction(Icons.AutoMirrored.Outlined.Comment, "Creator $commentCount", onComments)
         SideAction(Icons.Default.Edit, "Notes", onEdit)
         if (item.sourceUrl.isNotBlank()) {
             SideAction(Icons.AutoMirrored.Filled.OpenInNew, "Original") {

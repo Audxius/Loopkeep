@@ -185,6 +185,7 @@ private fun sourceLabel(source: String) = when (source) {
     QueueSource.MANUAL -> "Pasted"
     QueueSource.RETRY -> "Retry"
     QueueSource.COLLECTION -> "Collection"
+    QueueSource.REFRESH -> "Comments & links"
     else -> source
 }
 

@@ -124,7 +124,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { graph.indexer.rescan(storage) }
             .onFailure { _message.value = "Could not read the folder: ${it.message}" }
         repairEmptyNotes()
+        removeAutoTags()
         if (graph.db.queue().activeCount() > 0) QueueWorker.start(getApplication())
+    }
+
+    /**
+     * Up to v0.2, new notes got tags copied from the caption's hashtags. Those are noise, so they
+     * are removed once, but only from notes whose tags are *all* such hashtags; any note with a
+     * tag the user added is left alone.
+     */
+    private suspend fun removeAutoTags() {
+        if (graph.settings.autoTagsCleaned) return
+        val storage = graph.storage() ?: return
+        var cleaned = 0
+        withContext(Dispatchers.IO) {
+            for (v in videos.all()) {
+                if (!TagSuggester.allFromHashtags(v.tagList, v.caption)) continue
+                runCatching {
+                    val text = storage.readText(v.noteDocId)
+                    val doc = NoteDocument.parse(text)
+                    doc.frontmatter.setList(NoteKeys.TAGS, emptyList())
+                    storage.writeText(v.noteDocId, doc.render())
+                    storage.info(v.noteDocId)?.let { graph.indexer.indexNote(storage, it) }
+                    cleaned++
+                }
+            }
+        }
+        graph.settings.autoTagsCleaned = true
+        if (cleaned > 0) _message.value = "Removed hashtag tags from $cleaned notes"
     }
 
     /** Re-queues notes that have no caption and no cover (left by v0.1.1 for photo posts). */
@@ -243,8 +270,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- edits ------------------------------------------------------------------------------
 
-    fun suggestTags(item: VideoEntity): List<String> =
-        TagSuggester.suggest(item.caption, tags.value.map { it.first }, limit = 12).filter { it !in item.tagList }
+    /** Your own most-used tags, for quick re-use. Hashtags from TikTok aren't suggested. */
+    fun suggestTags(item: VideoEntity): List<String> = tags.value.map { it.first }.filter { it !in item.tagList }.take(12)
+
+    fun refreshCreatorInfo() = viewModelScope.launch {
+        val posts = videos.all().filter { it.status != io.github.audxius.loopkeep.core.NoteStatus.UNAVAILABLE.value }
+        val n = graph.queue.refreshCreatorInfo(posts)
+        _message.value = if (n == 0) "Nothing to fetch" else "Fetching creator comments and links for $n posts"
+    }
 
     /** Writes tags and notes back into the markdown file, touching nothing else. */
     fun saveEdits(item: VideoEntity, newTags: List<String>, newNotes: String, newCollections: List<String> = item.collectionList) = viewModelScope.launch {
