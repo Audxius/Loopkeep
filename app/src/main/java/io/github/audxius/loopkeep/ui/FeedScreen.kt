@@ -1,11 +1,13 @@
 package io.github.audxius.loopkeep.ui
 
 import android.content.Intent
-import androidx.core.net.toUri
+import android.os.Build
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -31,6 +35,7 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,10 +46,12 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -59,20 +66,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -91,6 +105,9 @@ private fun VideoEntity.playableUri(): String? = when {
     type == PostType.SLIDESHOW.value -> audioUri
     else -> null
 }
+
+/** Text over video: white with a soft shadow so it reads on any frame. */
+private val overlayShadow = Shadow(Color(0x99000000), blurRadius = 8f)
 
 @Composable
 fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
@@ -147,7 +164,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
         ) { page ->
             val item = byId[order[page]]
             if (item == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Removed from library", color = Color.White) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Removed from library", color = Brand.TextSecondary) }
                 return@VerticalPager
             }
             val uri = item.playableUri()
@@ -161,17 +178,27 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
                 onEdit = { editing = item },
                 onDelete = { deleting = item },
                 onRetry = { vm.retry(item) },
+                onCollection = { name -> vm.setCollection(name); vm.back() },
             )
         }
 
-        IconButton(onClick = { vm.back() }, modifier = Modifier.statusBarsPadding().padding(4.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+        // Top scrim + controls.
+        Box(Modifier.fillMaxWidth().height(120.dp).background(Brush.verticalGradient(listOf(Color(0x88000000), Color.Transparent))))
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(Color(0x40000000)).clickable { vm.back() },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White) }
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${current + 1} / ${order.size}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(CircleShape).background(Color(0x40000000)).padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
-        Text(
-            "${current + 1} / ${order.size}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp,
-            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp),
-        )
-        SnackbarHost(snackbar, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 48.dp))
+        SnackbarHost(snackbar, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 56.dp))
     }
 
     editing?.let { e ->
@@ -196,19 +223,19 @@ private fun FeedPage(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRetry: () -> Unit,
+    onCollection: (String) -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
         when {
             item.type == PostType.SLIDESHOW.value && item.imageUriList.isNotEmpty() -> Slideshow(item)
             player != null -> VideoSurface(item, player, isCurrent)
-            else -> TextOnlyCard(item, onRetry)
+            else -> UnavailableCard(item, onRetry)
         }
-        // Readability gradient behind the caption.
         Box(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.35f)
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB0000000)))),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.42f)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x66000000), Color(0xCC000000)))),
         )
-        CaptionOverlay(item, Modifier.align(Alignment.BottomStart).padding(end = 72.dp))
+        CaptionOverlay(item, onCollection, Modifier.align(Alignment.BottomStart).padding(end = 76.dp))
         SideActions(item, player != null, muted, onToggleMute, onEdit, onDelete, Modifier.align(Alignment.BottomEnd))
         if (player != null && item.type == PostType.VIDEO.value) {
             SeekBar(player, isCurrent, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
@@ -255,8 +282,13 @@ private fun VideoSurface(item: VideoEntity, player: ExoPlayer, isCurrent: Boolea
         if (showPoster && item.coverUri != null) {
             AsyncImage(item.coverUri, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
-        AnimatedVisibility(isCurrent && !playing, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
-            Icon(Icons.Default.PlayArrow, "Paused", tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(72.dp))
+        AnimatedVisibility(
+            isCurrent && !playing, enter = fadeIn() + scaleIn(initialScale = 1.3f), exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Box(Modifier.size(84.dp).clip(CircleShape).background(Color(0x55000000)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.PlayArrow, "Paused", tint = Color.White, modifier = Modifier.size(56.dp))
+            }
         }
     }
 }
@@ -269,7 +301,7 @@ private fun SeekBar(player: ExoPlayer, isCurrent: Boolean, modifier: Modifier) {
         while (isCurrent && !dragging) {
             val d = player.duration
             fraction = if (d > 0) (player.currentPosition.toFloat() / d).coerceIn(0f, 1f) else 0f
-            delay(100)
+            delay(80)
         }
     }
     fun seekTo(f: Float) {
@@ -277,7 +309,7 @@ private fun SeekBar(player: ExoPlayer, isCurrent: Boolean, modifier: Modifier) {
         if (d > 0) player.seekTo((f.coerceIn(0f, 1f) * d).toLong())
     }
     BoxWithConstraints(
-        modifier.fillMaxWidth().height(20.dp)
+        modifier.fillMaxWidth().height(22.dp)
             .pointerInput(player) { detectTapGestures { seekTo(it.x / size.width) } }
             .pointerInput(player) {
                 detectHorizontalDragGestures(
@@ -288,46 +320,86 @@ private fun SeekBar(player: ExoPlayer, isCurrent: Boolean, modifier: Modifier) {
             },
         contentAlignment = Alignment.BottomStart,
     ) {
-        val h = if (dragging) 4.dp else 2.dp
-        Box(Modifier.fillMaxWidth().height(h).background(Color.White.copy(alpha = 0.25f)))
-        Box(Modifier.width(maxWidth * fraction).height(h).background(Color.White))
+        val h = if (dragging) 5.dp else 2.dp
+        Box(Modifier.fillMaxWidth().height(h).background(Color.White.copy(alpha = 0.2f)))
+        Box(Modifier.width(maxWidth * fraction).height(h).background(Brand.GradientHorizontal))
+        if (dragging) {
+            Box(Modifier.padding(start = (maxWidth * fraction - 7.dp).coerceAtLeast(0.dp)).padding(bottom = 0.dp).size(14.dp).clip(CircleShape).background(Color.White))
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CaptionOverlay(item: VideoEntity, modifier: Modifier) {
+private fun CaptionOverlay(item: VideoEntity, onCollection: (String) -> Unit, modifier: Modifier) {
     var expanded by remember(item.tiktokId) { mutableStateOf(false) }
-    Column(modifier.navigationBarsPadding().padding(start = 14.dp, bottom = 24.dp)) {
-        val handle = item.authorHandle.ifBlank { null }?.let { "@$it" }
-        Text(
-            listOfNotNull(handle ?: item.author.ifBlank { null }, item.saved?.let { "saved $it" }).joinToString(" · "),
-            color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-        )
-        Spacer(Modifier.height(4.dp))
+    val shadow = TextStyle(shadow = overlayShadow)
+    Column(modifier.navigationBarsPadding().padding(start = 16.dp, bottom = 28.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val name = item.authorHandle.ifBlank { item.author }
+            if (name.isNotBlank()) {
+                Avatar(name, 34.dp)
+                Spacer(Modifier.width(10.dp))
+            }
+            Column {
+                Text(
+                    if (item.authorHandle.isNotBlank()) "@${item.authorHandle}" else item.author.ifBlank { "Unknown creator" },
+                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, style = shadow, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    listOfNotNull(item.saved?.let { "Saved $it" }, item.posted?.let { "posted $it" }).joinToString(" · "),
+                    color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, style = shadow,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         if (expanded) {
-            Box(
-                Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())
-                    .clickable { expanded = false },
+            Column(
+                Modifier.heightIn(max = 340.dp).clip(RoundedCornerShape(16.dp)).background(Color(0x99000000))
+                    .clickable { expanded = false }.verticalScroll(rememberScrollState()).padding(12.dp),
             ) {
                 SelectionContainer {
                     Column {
-                        Text(item.caption, color = Color.White, fontSize = 14.sp)
-                        if (item.tagList.isNotEmpty()) {
-                            Text(item.tagList.joinToString(" ") { "#$it" }, color = Color(0xFF9EE7E4), fontSize = 13.sp)
-                        }
+                        Text(item.caption, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
                         if (item.notes.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text("Notes", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text(item.notes, color = Color.White, fontSize = 13.sp)
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.AutoMirrored.Outlined.Notes, null, tint = Brand.Peach, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Your notes", color = Brand.Peach, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text(item.notes, color = Color.White, fontSize = 13.sp, lineHeight = 19.sp)
                         }
                     }
                 }
             }
         } else if (item.caption.isNotBlank()) {
             Text(
-                item.caption, color = Color.White, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { expanded = true },
+                item.caption, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                style = shadow, modifier = Modifier.clickable { expanded = true },
             )
+        }
+        if (item.tagList.isNotEmpty() || item.collectionList.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                item.collectionList.forEach { c ->
+                    Row(
+                        Modifier.clip(CircleShape).background(Brand.Coral.copy(alpha = 0.85f)).clickable { onCollection(c) }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.CollectionsBookmark, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(c, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                item.tagList.take(6).forEach { t ->
+                    Text(
+                        "#$t", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clip(CircleShape).background(Color(0x40FFFFFF)).padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -344,27 +416,35 @@ private fun SideActions(
 ) {
     val context = LocalContext.current
     Column(
-        modifier.navigationBarsPadding().padding(end = 8.dp, bottom = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier.navigationBarsPadding().padding(end = 10.dp, bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (hasSound) {
-            RoundAction(if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, if (muted) "Unmute" else "Mute", onToggleMute)
+            SideAction(if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, if (muted) "Muted" else "Sound", onToggleMute)
         }
-        RoundAction(Icons.Default.Edit, "Tags and notes", onEdit)
+        SideAction(Icons.Default.Edit, "Notes", onEdit)
         if (item.sourceUrl.isNotBlank()) {
-            RoundAction(Icons.AutoMirrored.Filled.OpenInNew, "Open original") {
+            SideAction(Icons.AutoMirrored.Filled.OpenInNew, "Original") {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, item.sourceUrl.toUri())) }
             }
         }
-        RoundAction(Icons.Default.Delete, "Delete", onDelete)
+        SideAction(Icons.Default.Delete, "Delete", onDelete)
     }
 }
 
 @Composable
-private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(Color(0x55000000))) {
-        Icon(icon, label, tint = Color.White)
+private fun SideAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(46.dp).shadow(8.dp, CircleShape).clip(CircleShape).background(Color(0x47000000)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(24.dp)) }
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium, style = TextStyle(shadow = overlayShadow))
     }
 }
 
@@ -377,13 +457,16 @@ private fun Slideshow(item: VideoEntity) {
             AsyncImage(images[i], null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
         Row(
-            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 56.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)
+                .clip(CircleShape).background(Color(0x40000000)).padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             repeat(images.size) { i ->
+                val active = i == state.currentPage
                 Box(
-                    Modifier.size(6.dp).clip(CircleShape)
-                        .background(if (i == state.currentPage) Color.White else Color.White.copy(alpha = 0.4f)),
+                    Modifier.height(6.dp).width(if (active) 16.dp else 6.dp).clip(CircleShape)
+                        .background(if (active) Color.White else Color.White.copy(alpha = 0.45f)),
                 )
             }
         }
@@ -391,31 +474,45 @@ private fun Slideshow(item: VideoEntity) {
 }
 
 @Composable
-private fun TextOnlyCard(item: VideoEntity, onRetry: () -> Unit) {
+private fun UnavailableCard(item: VideoEntity, onRetry: () -> Unit) {
     val context = LocalContext.current
     Box(Modifier.fillMaxSize()) {
         item.coverUri?.let {
-            AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(), alpha = 0.5f)
+            AsyncImage(
+                it, null, contentScale = ContentScale.Crop, alpha = 0.55f,
+                modifier = Modifier.fillMaxSize().then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(24.dp) else Modifier),
+            )
         }
         Column(
-            Modifier.align(Alignment.Center).padding(32.dp),
+            Modifier.align(Alignment.Center).padding(28.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xCC111116)).padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Icon(Icons.Outlined.CloudOff, null, tint = statusColor(item.status), modifier = Modifier.size(40.dp))
+            StatusPill(statusLabel(item.status), statusColor(item.status))
             Text(
                 when (item.status) {
-                    NoteStatus.UNAVAILABLE.value -> "This post is no longer available on TikTok"
-                    NoteStatus.TEXT_ONLY.value -> "Only the caption was saved"
-                    else -> "Video file missing from media/"
+                    NoteStatus.UNAVAILABLE.value -> "This post was deleted or made private on TikTok. Its note stays in your archive."
+                    NoteStatus.TEXT_ONLY.value -> "The caption and cover are saved, but the video couldn't be downloaded yet."
+                    else -> "The video file is missing from media/."
                 },
-                color = Color.White, fontWeight = FontWeight.Bold,
+                color = Brand.TextSecondary, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium,
             )
-            if (item.sourceUrl.isNotBlank()) {
-                Button(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, item.sourceUrl.toUri())) } }) {
-                    Text("Open on TikTok")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GradientButton("Retry", onClick = onRetry, icon = Icons.Default.Refresh)
+                if (item.sourceUrl.isNotBlank()) {
+                    Row(
+                        Modifier.clip(CircleShape).background(Brand.Surface3)
+                            .clickable { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, item.sourceUrl.toUri())) } }
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = Brand.TextPrimary, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("TikTok", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
-            OutlinedButton(onClick = onRetry) { Text("Retry download", color = Color.White) }
         }
     }
 }

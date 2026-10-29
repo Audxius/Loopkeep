@@ -70,8 +70,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Collection name → number of posts, most used first. */
+    val collections: StateFlow<List<Pair<String, Int>>> = videos.observeCollectionStrings()
+        .map { strings ->
+            strings.flatMap { it.split('\n') }.filter { it.isNotEmpty() }
+                .groupingBy { it }.eachCount().toList().sortedWith(compareBy({ -it.second }, { it.first.lowercase() }))
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val queueItems: StateFlow<List<QueueItem>> = graph.db.queue().observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Every saved post by ID, for labelling queue rows with the creator and caption. */
+    val allById: StateFlow<Map<String, VideoEntity>> = videos.observe(LibraryFilter().toQuery())
+        .map { list -> list.associateBy { it.tiktokId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val queueCounts = graph.db.queue().observeStateCounts()
         .map { list -> list.associate { it.state to it.count } }
@@ -140,8 +153,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSearch(text: String) = _filter.update { it.copy(search = text) }
     fun setStatus(status: String?) = _filter.update { it.copy(status = status) }
+    fun toggleStatus(status: String) = _filter.update { it.copy(status = if (it.status == status) null else status) }
     fun setTag(tag: String?) = _filter.update { it.copy(tag = tag) }
     fun setAuthor(handle: String?) = _filter.update { it.copy(authorHandle = handle) }
+    fun setCollection(name: String?) = _filter.update { it.copy(collection = name) }
     fun clearFilters() = _filter.update { LibraryFilter(order = it.order, shuffleSeed = it.shuffleSeed) }
 
     fun setOrder(order: FeedOrder) {
@@ -209,7 +224,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelImport() { _pendingImport.value = null }
 
     fun addLinks(text: String) = viewModelScope.launch {
-        val urls = TikTokUrls.findUrls(text).filter { TikTokUrls.isPostUrl(it) }
+        val urls = TikTokUrls.findUrls(text).filter { TikTokUrls.isPostUrl(it) || TikTokUrls.isCollectionUrl(it) }
         if (urls.isEmpty()) {
             _message.value = "No TikTok video link found"
             return@launch
@@ -232,7 +247,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         TagSuggester.suggest(item.caption, tags.value.map { it.first }, limit = 12).filter { it !in item.tagList }
 
     /** Writes tags and notes back into the markdown file, touching nothing else. */
-    fun saveEdits(item: VideoEntity, newTags: List<String>, newNotes: String) = viewModelScope.launch {
+    fun saveEdits(item: VideoEntity, newTags: List<String>, newNotes: String, newCollections: List<String> = item.collectionList) = viewModelScope.launch {
         val storage = storageOrComplain() ?: return@launch
         try {
             withContext(Dispatchers.IO) {
@@ -241,6 +256,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val cleaned = newTags.mapNotNull { TagSuggester.normalize(it) ?: it.trim().trimStart('#').replace(' ', '_').ifBlank { null } }.distinct()
                 if (cleaned != doc.frontmatter.getList(NoteKeys.TAGS)) doc.frontmatter.setList(NoteKeys.TAGS, cleaned)
                 if (newNotes.trim() != doc.notes().trim()) doc.setNotes(newNotes)
+                val cols = newCollections.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                if (cols != doc.frontmatter.getList(NoteKeys.COLLECTIONS)) {
+                    if (cols.isEmpty()) doc.frontmatter.remove(NoteKeys.COLLECTIONS) else doc.frontmatter.setList(NoteKeys.COLLECTIONS, cols)
+                }
                 val out = doc.render()
                 if (out != text) storage.writeText(item.noteDocId, out)
                 storage.info(item.noteDocId)?.let { graph.indexer.indexNote(storage, it) }
