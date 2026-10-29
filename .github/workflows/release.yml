@@ -1,0 +1,130 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish, e.g. v1.2.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # create the GitHub Release and upload the APK
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Check signing secrets
+        env:
+          KS_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$KS_B64" ]    || missing="$missing RELEASE_KEYSTORE_BASE64"
+          [ -n "$KS_PASS" ]   || missing="$missing RELEASE_KEYSTORE_PASSWORD"
+          [ -n "$KEY_ALIAS" ] || missing="$missing RELEASE_KEY_ALIAS"
+          [ -n "$KEY_PASS" ]  || missing="$missing RELEASE_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error title=Release signing is not set up::Missing repository secrets:$missing. Run scripts/setup.sh or follow SETUP.md. Refusing to publish an APK with a different signing key, because that would break updates."
+            exit 1
+          fi
+
+      - name: Validate tag and derive version
+        id: version
+        run: |
+          if ! [[ "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Tag '$TAG' must look like v1.2.3"
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]}; minor=${BASH_REMATCH[2]}; patch=${BASH_REMATCH[3]}
+          if [ "$minor" -ge 1000 ] || [ "$patch" -ge 1000 ]; then
+            echo "::error::minor and patch must be below 1000 so versionCode stays monotonic"
+            exit 1
+          fi
+          # v1.2.3 -> 1002003. Increases with every higher semantic version.
+          code=$(( major * 1000000 + minor * 1000 + patch ))
+          echo "name=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "versionName=${TAG#v} versionCode=$code"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: true
+
+      - name: Decode keystore
+        env:
+          KS_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: echo "$KS_B64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+      - name: Test and build signed release APK
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: >
+          ./gradlew --no-configuration-cache testReleaseUnitTest assembleRelease
+          -PappVersionName=${{ steps.version.outputs.name }}
+          -PappVersionCode=${{ steps.version.outputs.code }}
+          -PrequireReleaseSigning=true
+
+      - name: Verify signature and collect APK
+        run: |
+          apks=(app/build/outputs/apk/release/*.apk)
+          if [ "${#apks[@]}" -ne 1 ] || [[ "${apks[0]}" == *unsigned* ]]; then
+            echo "::error::Expected exactly one signed release APK, found: ${apks[*]}"
+            exit 1
+          fi
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$apksigner" verify --print-certs "${apks[0]}" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          mkdir -p dist
+          cp "${apks[0]}" dist/loopkeep.apk
+
+      - name: Release notes from commit subjects
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+          range="${prev:+$prev..}$TAG"
+          {
+            echo "## Changes${prev:+ since $prev}"
+            echo
+            git log --no-merges --format='- %s' "$range"
+          } > dist/notes.md
+          cat dist/notes.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/loopkeep.apk --clobber
+            gh release edit "$TAG" --notes-file dist/notes.md
+          else
+            gh release create "$TAG" dist/loopkeep.apk --title "Loopkeep $TAG" --notes-file dist/notes.md --verify-tag
+          fi
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
