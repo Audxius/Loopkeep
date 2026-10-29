@@ -31,6 +31,11 @@ class Settings(context: Context) {
         get() = prefs.getLong(KEY_YTDLP_CHECK, 0)
         set(value) = prefs.edit { putLong(KEY_YTDLP_CHECK, value) }
 
+    /** One-time removal of the hashtag tags v0.1–v0.2 wrote automatically. */
+    var autoTagsCleaned: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_TAGS_CLEANED, false)
+        set(value) = prefs.edit { putBoolean(KEY_AUTO_TAGS_CLEANED, value) }
+
     var autoUpdateYtDlp: Boolean
         get() = prefs.getBoolean(KEY_YTDLP_AUTO, true)
         set(value) = prefs.edit { putBoolean(KEY_YTDLP_AUTO, value) }
@@ -41,5 +46,6 @@ class Settings(context: Context) {
         const val KEY_MUTED = "muted"
         const val KEY_YTDLP_CHECK = "ytdlp_check"
         const val KEY_YTDLP_AUTO = "ytdlp_auto"
+        const val KEY_AUTO_TAGS_CLEANED = "auto_tags_cleaned"
     }
 }

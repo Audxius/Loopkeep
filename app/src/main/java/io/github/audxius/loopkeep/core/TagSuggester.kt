@@ -22,6 +22,16 @@ object TagSuggester {
     }
 
     /**
+     * True if every tag looks auto-generated from the caption's hashtags (what Loopkeep up to v0.2
+     * wrote into new notes). Used once to clean those up without touching tags the user added.
+     */
+    fun allFromHashtags(tags: List<String>, caption: String): Boolean {
+        if (tags.isEmpty()) return false
+        val fromCaption = hashtag.findAll(caption).mapNotNull { normalize(it.groupValues[1]) }.toSet()
+        return tags.all { normalize(it) in fromCaption }
+    }
+
+    /**
      * Hashtags in caption order, cleaned and de-noised, followed by any existing library tags
      * that appear as whole words in the caption.
      */
