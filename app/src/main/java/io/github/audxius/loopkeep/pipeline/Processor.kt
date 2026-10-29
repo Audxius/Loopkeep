@@ -13,6 +13,7 @@ import io.github.audxius.loopkeep.core.OEmbedInfo
 import io.github.audxius.loopkeep.core.OEmbedParser
 import io.github.audxius.loopkeep.core.PageInfo
 import io.github.audxius.loopkeep.core.PageParser
+import io.github.audxius.loopkeep.core.PlaylistParser
 import io.github.audxius.loopkeep.core.PostType
 import io.github.audxius.loopkeep.core.TagSuggester
 import io.github.audxius.loopkeep.core.TikTokUrls
@@ -38,6 +39,8 @@ sealed class Outcome {
     data class Retry(val reason: String, val minDelayMs: Long = 0) : Outcome()
     /** Will not work no matter how often we try. */
     data class Fail(val reason: String) : Outcome()
+    /** A collection link: these posts should be queued into collection [name]. */
+    data class Expanded(val urls: List<String>, val name: String) : Outcome()
 }
 
 /**
@@ -59,16 +62,19 @@ class Processor(
         var id = item.tiktokId ?: TikTokUrls.extractVideoId(url)
         if (id == null && TikTokUrls.isShortLink(url)) {
             url = try {
-                Http.resolveRedirects(url) { TikTokUrls.extractVideoId(it) != null }
+                Http.resolveRedirects(url) { TikTokUrls.extractVideoId(it) != null || TikTokUrls.isCollectionUrl(it) }
             } catch (e: IOException) {
                 return@withContext Outcome.Retry("Could not resolve short link: ${e.message}")
             }
             id = TikTokUrls.extractVideoId(url)
         }
+        if (id == null && TikTokUrls.isCollectionUrl(url)) return@withContext expandCollection(url)
         if (id == null) return@withContext Outcome.Fail("Not a TikTok post link (or the short link has expired)")
 
+        val collections = item.collections.orEmpty().split('\n').filter { it.isNotBlank() }
         val existing = db.videos().byTiktokId(id)
         if (existing != null && existing.status == NoteStatus.FULL.value && !item.force) {
+            if (collections.isNotEmpty()) addCollections(storage, existing.noteDocId, collections)
             return@withContext Outcome.Done(NoteStatus.FULL, existing.noteName, "Already saved")
         }
 
@@ -156,6 +162,7 @@ class Processor(
                 posted = info?.posted ?: page?.posted,
                 saved = item.savedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now(),
                 tags = TagSuggester.suggest(caption, existingTags, limit = 6),
+                collections = collections,
                 status = status,
                 type = type,
                 durationSeconds = info?.durationSeconds ?: page?.durationSeconds,
@@ -180,6 +187,38 @@ class Processor(
         } finally {
             tmp.deleteRecursively()
         }
+    }
+
+    /**
+     * Lists a collection's posts with yt-dlp. TikTok's collection API often returns nothing to
+     * unsigned requests (seen 2026-10-29 even for public collections), so an empty result is
+     * reported as a failure the user can read, not silently accepted.
+     */
+    private suspend fun expandCollection(url: String): Outcome {
+        val name = TikTokUrls.collectionName(url) ?: "Collection"
+        val urls = try {
+            PlaylistParser.videoUrls(ytDlp.listPlaylist(url))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return Outcome.Retry("Could not list collection: ${e.message}")
+        }
+        if (urls.isEmpty()) {
+            return Outcome.Fail(
+                "TikTok returned no videos for collection \"$name\". Make sure it is public. " +
+                    "If it still fails, TikTok is blocking collection listing; add the videos individually.",
+            )
+        }
+        return Outcome.Expanded(urls, name)
+    }
+
+    /** Adds collections to an existing note without downloading anything. */
+    private suspend fun addCollections(storage: VaultStorage, noteDocId: String, collections: List<String>) {
+        val text = runCatching { storage.readText(noteDocId) }.getOrNull() ?: return
+        val doc = io.github.audxius.loopkeep.core.NoteDocument.parse(text)
+        if (!NoteWriter.addCollections(doc.frontmatter, collections)) return
+        storage.writeText(noteDocId, doc.render())
+        storage.info(noteDocId)?.let { indexer.indexNote(storage, it) }
     }
 
     /** Runs yt-dlp so that cancelling the coroutine also kills the yt-dlp process. */

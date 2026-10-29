@@ -20,7 +20,7 @@ class ShareActivity : ComponentActivity() {
             intent?.getStringExtra(Intent.EXTRA_SUBJECT),
             intent?.dataString,
         ).joinToString(" ")
-        val urls = TikTokUrls.findUrls(text).filter { TikTokUrls.isPostUrl(it) }
+        val urls = TikTokUrls.findUrls(text).filter { TikTokUrls.isPostUrl(it) || TikTokUrls.isCollectionUrl(it) }
 
         if (graph.storage() == null) {
             startActivity(

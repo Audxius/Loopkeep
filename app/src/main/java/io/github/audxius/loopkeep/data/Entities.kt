@@ -45,9 +45,12 @@ data class VideoEntity(
     val audioUri: String?,
     /** Newline-separated content URIs, same order as [imageNames]. */
     val imageUris: String,
+    /** Collection names, newline-separated with a leading and trailing newline ("\nA\nB\n"). */
+    @ColumnInfo(defaultValue = "") val collections: String = "",
 ) {
     val tagList: List<String> get() = tags.trim().split(' ').filter { it.isNotEmpty() }
     val imageUriList: List<String> get() = imageUris.split('\n').filter { it.isNotEmpty() }
+    val collectionList: List<String> get() = collections.split('\n').filter { it.isNotEmpty() }
 }
 
 @Fts4(contentEntity = VideoEntity::class)
@@ -73,6 +76,7 @@ object QueueSource {
     const val SHARE = "share"
     const val MANUAL = "manual"
     const val RETRY = "retry"
+    const val COLLECTION = "collection"
 }
 
 @Entity(tableName = "queue", indices = [Index("tiktokId"), Index("url"), Index("state", "nextAttemptAt")])
@@ -91,6 +95,8 @@ data class QueueItem(
     val resultStatus: String? = null,
     /** Re-download even if a full note already exists. */
     val force: Boolean = false,
+    /** Newline-separated collection names to put the post in. */
+    val collections: String? = null,
     @ColumnInfo(defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val updatedAt: Long = System.currentTimeMillis(),
 )

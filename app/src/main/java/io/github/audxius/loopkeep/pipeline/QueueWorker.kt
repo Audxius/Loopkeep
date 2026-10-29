@@ -83,6 +83,10 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                     lastError = outcome.message, force = false,
                 )
                 is Outcome.Fail -> item.copy(state = QueueState.FAILED, attempts = attempts, lastError = outcome.reason)
+                is Outcome.Expanded -> {
+                    val r = graph.queue.enqueueCollection(outcome.urls, outcome.name)
+                    item.copy(state = QueueState.DONE, attempts = attempts, force = false, lastError = "Collection \"${outcome.name}\": ${r.summary}")
+                }
                 is Outcome.Retry -> if (attempts >= QueuePolicy.MAX_ATTEMPTS) {
                     item.copy(state = QueueState.FAILED, attempts = attempts, lastError = outcome.reason)
                 } else {

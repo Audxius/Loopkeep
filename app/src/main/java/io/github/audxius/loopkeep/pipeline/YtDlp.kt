@@ -62,6 +62,19 @@ class YtDlp(private val context: Context) {
         collect(dir)
     }
 
+    /** Lists the posts in a TikTok collection (flat, nothing downloaded). Returns yt-dlp's JSON. */
+    suspend fun listPlaylist(url: String): String = withContext(Dispatchers.IO) {
+        ensureInit()
+        val request = YoutubeDLRequest(url).apply {
+            addOption("--flat-playlist")
+            addOption("-J")
+            addOption("--socket-timeout", 30)
+        }
+        val response = YoutubeDL.getInstance().execute(request, null)
+        if (response.exitCode != 0) throw RuntimeException(response.err.ifBlank { "yt-dlp exited with ${response.exitCode}" })
+        response.out
+    }
+
     fun cancel(processId: String) {
         runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
     }

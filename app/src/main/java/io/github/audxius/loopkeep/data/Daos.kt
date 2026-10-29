@@ -63,6 +63,9 @@ interface VideoDao {
     @Query("SELECT tags FROM videos WHERE tags != ' ' AND tags != ''")
     fun observeTagStrings(): Flow<List<String>>
 
+    @Query("SELECT collections FROM videos WHERE collections != ''")
+    fun observeCollectionStrings(): Flow<List<String>>
+
     @Query("SELECT tags FROM videos WHERE tags != ' ' AND tags != ''")
     suspend fun tagStrings(): List<String>
 }

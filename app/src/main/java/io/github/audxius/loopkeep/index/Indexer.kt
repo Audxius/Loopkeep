@@ -127,6 +127,8 @@ class Indexer(private val dao: VideoDao) {
             coverName = unwrapWikiLink(fm.getString(NoteKeys.COVER)),
             audioName = unwrapWikiLink(fm.getString(NoteKeys.AUDIO)),
             imageNames = images.joinToString("\n"),
+            collections = fm.getList(NoteKeys.COLLECTIONS).map { it.trim() }.filter { it.isNotEmpty() }
+                .let { if (it.isEmpty()) "" else it.joinToString("\n", prefix = "\n", postfix = "\n") },
             videoUri = null, coverUri = null, audioUri = null, imageUris = "",
         )
         return withMedia(base, media)
