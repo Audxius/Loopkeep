@@ -163,7 +163,9 @@ object PageParser {
             .toList()
         if (roots.isEmpty()) return null
         for (root in roots) {
-            val detail = findObjectWithKey(root, "itemInfo") ?: findObjectWithKey(root, "statusCode")
+            // Only the post-detail section counts. Other sections (app-context etc.) also carry a
+            // statusCode, and a page without post data (e.g. /photo/ URLs) must not look like a result.
+            val detail = findObjectWithKey(root, "itemInfo") ?: findDetailSection(root)
             val item = (findKey(root, "itemStruct") as? JsonObject)
                 ?: ((findKey(root, "ItemModule") as? JsonObject)?.values?.firstOrNull() as? JsonObject)
             val status = (detail?.get("statusCode") as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
@@ -202,6 +204,15 @@ object PageParser {
             ((holder?.get("urlList") ?: holder?.get("url_list")) as? JsonArray)?.firstOrNull()
                 ?.let { (it as? JsonPrimitive)?.contentOrNull }
         }
+    }
+
+    /** A `"webapp.video-detail"`-style section (any key ending in `-detail`) that has a statusCode. */
+    private fun findDetailSection(el: JsonElement, depth: Int = 0): JsonObject? {
+        if (depth > 10 || el !is JsonObject) return null
+        for ((k, v) in el) {
+            if (k.endsWith("-detail") && v is JsonObject && "statusCode" in v) return v
+        }
+        return el.values.firstNotNullOfOrNull { findDetailSection(it, depth + 1) }
     }
 
     private fun findKey(el: JsonElement, key: String, depth: Int = 0): JsonElement? {

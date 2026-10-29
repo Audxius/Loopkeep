@@ -108,6 +108,13 @@ class RemoteMetaTest {
         assertEquals(listOf("https://img.example/1.jpeg", "https://img.example/2.jpeg"), p.imageUrls)
     }
 
+    @Test fun photoUrlPageWithoutPostDataIsNoResult() {
+        // Shape observed live (2026-10-29) for /photo/<id> URLs: only app-level sections, no post.
+        val html = page("""{"__DEFAULT_SCOPE__":{"seo.abtest":{},"webapp.a-b":{},
+            "webapp.app-context":{"statusCode":0,"user":{}},"webapp.biz-context":{},"webapp.i18n-translation":{}}}""")
+        assertNull(PageParser.parse(html))
+    }
+
     @Test fun pageWithoutStateOrGarbage() {
         assertNull(PageParser.parse("<html>nothing</html>"))
         assertNull(PageParser.parse(page("not json")))

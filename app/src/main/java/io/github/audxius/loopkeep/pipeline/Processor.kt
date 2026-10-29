@@ -74,7 +74,9 @@ class Processor(
 
         val isPhoto = TikTokUrls.isPhotoUrl(url)
         val handleHint = TikTokUrls.extractHandle(url) ?: existing?.authorHandle?.ifBlank { null }
-        val canonical = TikTokUrls.canonicalUrl(id, handleHint, isPhoto)
+        // yt-dlp and TikTok's page only work with /video/ URLs, also for photo posts: yt-dlp rejects
+        // /photo/ ("Unsupported URL") and the /photo/ page has no post data. Checked live 2026-10-29.
+        val canonical = TikTokUrls.canonicalUrl(id, handleHint, photo = false)
         val tmp = File(context.cacheDir, "dl/$id")
 
         try {
@@ -97,7 +99,8 @@ class Processor(
             var pageError: String? = null
             val page: PageInfo? = if (videoFile == null || isPhoto) {
                 try {
-                    PageParser.parse(Http.getText(TikTokUrls.canonicalUrl(id, handleHint ?: info?.authorHandle, isPhoto)))
+                    PageParser.parse(Http.getText(TikTokUrls.canonicalUrl(id, handleHint ?: info?.authorHandle, photo = false)))
+                        ?.takeIf { !it.isAvailable || it.caption != null || it.covers.isNotEmpty() || it.imageUrls.isNotEmpty() }
                 } catch (e: IOException) {
                     pageError = e.message
                     null
@@ -116,6 +119,7 @@ class Processor(
                 videoFile != null -> NoteStatus.FULL
                 images.isNotEmpty() -> NoteStatus.FULL
                 page != null && !page.isAvailable -> NoteStatus.UNAVAILABLE
+                // Text-only needs at least a caption or a cover; otherwise try again later.
                 info != null || page != null || oembed != null -> NoteStatus.TEXT_ONLY
                 else -> {
                     val reason = listOfNotNull(ytError, pageError).joinToString("; ").ifBlank { "No data from TikTok" }
