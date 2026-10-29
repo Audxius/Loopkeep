@@ -15,6 +15,7 @@ import io.github.audxius.loopkeep.data.FeedOrder
 import io.github.audxius.loopkeep.data.LibraryFilter
 import io.github.audxius.loopkeep.data.QueueItem
 import io.github.audxius.loopkeep.data.QueueSource
+import io.github.audxius.loopkeep.data.QueueState
 import io.github.audxius.loopkeep.data.VideoEntity
 import io.github.audxius.loopkeep.pipeline.QueueWorker
 import io.github.audxius.loopkeep.storage.VaultStorage
@@ -109,7 +110,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // Incremental rescan so edits made in Obsidian show up.
         runCatching { graph.indexer.rescan(storage) }
             .onFailure { _message.value = "Could not read the folder: ${it.message}" }
+        repairEmptyNotes()
         if (graph.db.queue().activeCount() > 0) QueueWorker.start(getApplication())
+    }
+
+    /** Re-queues notes that have no caption and no cover (left by v0.1.1 for photo posts). */
+    private suspend fun repairEmptyNotes() {
+        for (e in videos.emptyTextOnly()) {
+            val last = graph.db.queue().findExisting(e.tiktokId, e.sourceUrl)
+            if (last?.state == QueueState.FAILED) continue // already tried and gave up; the user can retry
+            graph.queue.retry(e.tiktokId, e.sourceUrl)
+        }
     }
 
     // --- navigation -------------------------------------------------------------------------
@@ -237,6 +248,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _message.value = "Saved to ${item.noteName}"
         } catch (e: Exception) {
             _message.value = "Could not save: ${e.message}. The note may have been moved or renamed; try Rescan."
+        }
+    }
+
+    /** Deletes the note and all of its media files from the folder, and forgets the item. */
+    fun delete(item: VideoEntity) = viewModelScope.launch {
+        val storage = storageOrComplain() ?: return@launch
+        try {
+            withContext(Dispatchers.IO) {
+                val media = listOfNotNull(item.videoName, item.coverName, item.audioName) +
+                    item.imageNames.split('\n').filter { it.isNotEmpty() }
+                storage.deleteNamed(storage.mediaDir(), media.toSet())
+                storage.delete(item.noteDocId)
+                videos.deleteByTiktokId(item.tiktokId)
+                graph.db.queue().deleteByTiktokId(item.tiktokId)
+            }
+            _message.value = "Deleted "
+        } catch (e: Exception) {
+            _message.value = "Could not delete: "
         }
     }
 

@@ -38,6 +38,13 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE id IN (:ids)")
     suspend fun deleteIds(ids: List<Long>)
 
+    @Query("DELETE FROM videos WHERE tiktokId = :tiktokId")
+    suspend fun deleteByTiktokId(tiktokId: String)
+
+    /** Text-only notes with neither caption nor cover: written by v0.1.1 for photo posts. */
+    @Query("SELECT * FROM videos WHERE status = 'text-only' AND caption = '' AND coverName IS NULL")
+    suspend fun emptyTextOnly(): List<VideoEntity>
+
     @Query("DELETE FROM videos")
     suspend fun clear()
 
@@ -103,4 +110,7 @@ interface QueueDao {
 
     @Query("DELETE FROM queue WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM queue WHERE tiktokId = :tiktokId")
+    suspend fun deleteByTiktokId(tiktokId: String)
 }
