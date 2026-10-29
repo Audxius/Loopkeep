@@ -1,0 +1,5 @@
+• New dark design across the app
+• Collections: shelf, filter and editing; imported from collection links and exports
+• Counters for saved, partial, unavailable and failed posts
+• Downloads screen shows creator and caption
+• Text fields respond to taps anywhere

@@ -1,0 +1,33 @@
+<p><b>Loopkeep keeps every TikTok you ever saved</b>, so you can delete TikTok without losing them.</p>
+
+<p>It downloads your saved videos to your phone together with their full captions, creators and dates, into a plain folder you own. Each post becomes a Markdown note with its video and cover next to it, so the folder works inside <b>Obsidian</b> too. If the app disappears, the folder is still a complete archive.</p>
+
+<p><b>Watch them like TikTok, minus TikTok</b></p>
+<ul>
+<li>Full-screen vertical feed: swipe, loop, tap to pause, seek, mute</li>
+<li>Photo carousels with their sound</li>
+<li>No account, no algorithm, no tracking, no infinite feed: only what you saved</li>
+<li>Newest, oldest or shuffled</li>
+</ul>
+
+<p><b>Bring everything over</b></p>
+<ul>
+<li>Import TikTok's "Download your data" export (JSON, TXT, HTML or the ZIP)</li>
+<li>Share any video, photo post or public collection to Loopkeep from TikTok</li>
+<li>Downloads run in the background, politely, and resume after interruptions</li>
+<li>If a video can't be downloaded, its caption and cover are still kept</li>
+</ul>
+
+<p><b>Find and organise</b></p>
+<ul>
+<li>Full-text search over captions, tags, notes and creators</li>
+<li>Collections, tags (suggested from hashtags) and your own notes</li>
+<li>Filters by collection, status, tag and creator</li>
+<li>Counters for saved, partial, unavailable and failed posts</li>
+</ul>
+
+<p>Everything you edit is written back into the Markdown files. Edits you make in Obsidian show up in the app.</p>
+
+<p>Backing up is copying the folder.</p>
+
+<p>Loopkeep is an independent project, not affiliated with TikTok or ByteDance. Keep copies for yourself; respect creators' rights.</p>
