@@ -108,6 +108,10 @@ jobs:
           prev=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
           range="${prev:+$prev..}$TAG"
           {
+            echo "Keep every TikTok you ever saved: offline, searchable, in a folder you own."
+            echo
+            echo "**Install or update:** add \`https://github.com/$GITHUB_REPOSITORY\` in [Obtainium](https://obtainium.imranr.dev), or download \`loopkeep.apk\` below."
+            echo
             echo "## Changes${prev:+ since $prev}"
             echo
             git log --no-merges --format='- %s' "$range"
