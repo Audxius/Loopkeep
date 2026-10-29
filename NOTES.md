@@ -82,6 +82,21 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - Release keystore is PKCS12, so the store and key share one password.
 - Room uses destructive migration: the index rebuilds from the folder, and only the queue would be lost.
 
+**Design (v0.2)**
+- Dark-only. It's a video viewer first, and a single theme keeps the brand consistent. Own palette (coral → peach gradient, teal/gold/rose status colours) rather than Material You dynamic colour, which washed out the UI.
+- Shared components in `ui/Components.kt`: `GradientButton`, `StatusPill`, `Avatar`, `StatTile`, `SectionCard`/`SettingRow`, `PlainTextField`. The latter makes the whole visible input area tappable (the earlier version only reacted on the first text line).
+- Counters (saved / partial / gone / failed) sit at the top of the library; tapping one filters by it, and *Failed* opens the downloads screen.
+- Screenshots in `fastlane/metadata/android/en-US/images` (the F-Droid/IzzyOnDroid layout) were taken on the emulator with public posts from @tiktok, @natgeo and @nasa, using a synthetic export.
+
+**Collections**
+- TikTok's data export most likely does **not** contain collections: third-party write-ups say favourites are one flat list. So collections come from:
+  1. shared collection links (`tiktok.com/@user/collection/<name>-<id>`), listed with yt-dlp's `tiktok:collection` extractor;
+  2. the export, if a future version names collections (the parser picks up `CollectionName`/`name` fields or map keys under a collections section, and `Collection: X` lines in TXT);
+  3. the edit sheet, by hand.
+- **Listing collections is unreliable.** On 2026-10-29 yt-dlp returned zero entries for its own test collections, and TikTok's `api/collection/item_list` answered `statusCode 100001` to unsigned requests. An empty listing is reported as a readable failure in the queue, never silently accepted.
+- Stored as `collections: [A, B]` in the note (managed key, unioned on merge) and as `"\nA\nB\n"` in the index for exact `LIKE` matching. Room schema v2 adds the columns with a real migration, so the queue survives the update.
+- A post that's already saved only gets the collection added to its note; nothing is downloaded again.
+
 ## How to update yt-dlp
 
 - In the app: **Settings → Downloader → Update yt-dlp now**. Auto-update (every 3 days) is on by default.
