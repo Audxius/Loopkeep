@@ -90,7 +90,7 @@ class Frontmatter private constructor(
 
         fun parse(text: String): Frontmatter {
             val newline = if (text.contains("\r\n")) "\r\n" else "\n"
-            val bom = if (text.startsWith("﻿")) "﻿" else ""
+            val bom = if (text.startsWith("\uFEFF")) "\uFEFF" else ""
             val content = text.removePrefix(bom)
             val lines = content.split(newline)
             if (lines.isEmpty() || lines[0].trimEnd() != "---") {

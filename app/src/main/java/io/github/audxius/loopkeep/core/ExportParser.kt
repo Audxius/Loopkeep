@@ -47,7 +47,7 @@ object ExportParser {
     }
 
     fun parseText(text: String, context: String = ""): List<ExportEntry> {
-        val trimmed = text.trimStart('﻿', ' ', '\n', '\r', '\t')
+        val trimmed = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             val json = runCatching { Json.parseToJsonElement(trimmed) }.getOrNull()
             if (json != null) return parseJson(json, context)
@@ -187,7 +187,7 @@ object ExportParser {
                     val entry = zip.nextEntry ?: break
                     val name = entry.name
                     if (!entry.isDirectory && name.substringAfterLast('.').lowercase() in setOf("json", "txt", "html", "htm")) {
-                        val content = zip.readNBytes(MAX_ZIP_ENTRY_BYTES.toInt())
+                        val content = zip.readUpTo(MAX_ZIP_ENTRY_BYTES.toInt())
                         // Folder and file names carry the section ("Activity/Favorite Videos.txt").
                         val context = name.substringBeforeLast('.').replace('/', ' ')
                         out += parseText(content.toString(Charsets.UTF_8), context)
@@ -218,4 +218,18 @@ object ExportParser {
         }
         return Instant.ofEpochSecond(seconds).atZone(ZoneOffset.UTC).toLocalDate()
     }
+}
+
+/** `InputStream.readNBytes` is API 33+ on Android; this works everywhere. */
+fun java.io.InputStream.readUpTo(max: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    val buf = ByteArray(64 * 1024)
+    var total = 0
+    while (total < max) {
+        val n = read(buf, 0, minOf(buf.size, max - total))
+        if (n < 0) break
+        out.write(buf, 0, n)
+        total += n
+    }
+    return out.toByteArray()
 }
