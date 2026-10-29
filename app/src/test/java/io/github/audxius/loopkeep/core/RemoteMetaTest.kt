@@ -67,12 +67,50 @@ class RemoteMetaTest {
         assertNull(OEmbedParser.parse("<html>error</html>"))
     }
 
-    @Test fun slideshowImagesFromPageState() {
-        val html = """<html><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">
-            {"__DEFAULT_SCOPE__":{"webapp.video-detail":{"itemInfo":{"itemStruct":{"id":"1","imagePost":{"images":[
-              {"imageURL":{"urlList":["https://img.example/1.jpeg","https://img.example/1b.jpeg"]}},
-              {"imageURL":{"urlList":["https://img.example/2.jpeg"]}}]}}}}}}</script></html>"""
-        assertEquals(listOf("https://img.example/1.jpeg", "https://img.example/2.jpeg"), SlideshowParser.imageUrls(html))
-        assertTrue(SlideshowParser.imageUrls("<html>nothing</html>").isEmpty())
+    @Test fun newIframeOnlyOEmbedHasNoCaption() {
+        // Shape observed live in 2026-10: TikTok now returns only an iframe player.
+        val o = OEmbedParser.parse("""{"version":"1.0","type":"video","html":"<iframe src=\"x\"></iframe>","embed_product_id":"1"}""")!!
+        assertNull(o.caption)
+        assertNull(o.thumbnailUrl)
+        assertEquals("1", o.videoId)
+    }
+
+    private fun page(json: String) =
+        """<html><head><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">$json</script></head></html>"""
+
+    @Test fun pageWithVideo() {
+        val p = PageParser.parse(page("""{"__DEFAULT_SCOPE__":{"webapp.app-context":{"x":1},"webapp.video-detail":{"statusCode":0,"statusMsg":"",
+            "itemInfo":{"itemStruct":{"id":"7300000000000000001","desc":"Caption 😍 #tag","createTime":"1709251200",
+            "author":{"uniqueId":"chef.anna","nickname":"Chef Anna"},
+            "video":{"duration":10,"cover":"https://img.example/c.jpeg","originCover":"https://img.example/o.jpeg"}}}}}}"""))!!
+        assertTrue(p.isAvailable)
+        assertEquals("7300000000000000001", p.id)
+        assertEquals("Caption 😍 #tag", p.caption)
+        assertEquals("Chef Anna", p.author)
+        assertEquals("chef.anna", p.authorHandle)
+        assertEquals(LocalDate.of(2024, 3, 1), p.posted)
+        assertEquals(10, p.durationSeconds)
+        assertEquals(listOf("https://img.example/c.jpeg", "https://img.example/o.jpeg"), p.covers)
+        assertTrue(p.imageUrls.isEmpty())
+    }
+
+    @Test fun pageForDeletedPost() {
+        val p = PageParser.parse(page("""{"__DEFAULT_SCOPE__":{"webapp.video-detail":{"statusCode":10204,"statusMsg":"item doesn't exist"}}}"""))!!
+        assertFalse(p.isAvailable)
+        assertEquals(10204, p.statusCode)
+        assertNull(p.caption)
+    }
+
+    @Test fun pageWithSlideshow() {
+        val p = PageParser.parse(page("""{"__DEFAULT_SCOPE__":{"webapp.video-detail":{"statusCode":0,"itemInfo":{"itemStruct":{"id":"1","desc":"pics",
+            "imagePost":{"images":[{"imageURL":{"urlList":["https://img.example/1.jpeg","https://img.example/1b.jpeg"]}},
+            {"imageURL":{"urlList":["https://img.example/2.jpeg"]}}]}}}}}}"""))!!
+        assertEquals(listOf("https://img.example/1.jpeg", "https://img.example/2.jpeg"), p.imageUrls)
+    }
+
+    @Test fun pageWithoutStateOrGarbage() {
+        assertNull(PageParser.parse("<html>nothing</html>"))
+        assertNull(PageParser.parse(page("not json")))
+        assertNull(PageParser.parse(page("""{"a":{"b":[]}}""")))
     }
 }

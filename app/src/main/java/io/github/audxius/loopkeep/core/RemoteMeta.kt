@@ -72,7 +72,7 @@ object YtDlpInfoParser {
         // On TikTok, yt-dlp sets `uploader` to the @handle and `channel`/`creator` to the display name.
         val handle = obj.str("uploader", "uploader_id")?.removePrefix("@")?.takeIf { !it.all(Char::isDigit) }
             ?: obj.str("webpage_url", "original_url")?.let { TikTokUrls.extractHandle(it) }
-        val author = obj.str("channel", "creator", "artist")
+        val author = obj.str("channel", "creator")
             ?: (obj["creators"] as? JsonArray)?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }
             ?: handle
 
@@ -127,32 +127,81 @@ object OEmbedParser {
     }
 }
 
+/** What a TikTok post page says about the post. */
+data class PageInfo(
+    /** TikTok's own status: 0 = OK, 10204 = doesn't exist, 10216/10222 = private, etc. */
+    val statusCode: Int?,
+    val statusMessage: String?,
+    val id: String?,
+    val caption: String?,
+    val author: String?,
+    val authorHandle: String?,
+    val posted: LocalDate?,
+    val durationSeconds: Int?,
+    val covers: List<String>,
+    /** Slideshow images, in order. Empty for regular videos. */
+    val imageUrls: List<String>,
+) {
+    val isAvailable: Boolean get() = statusCode == null || statusCode == 0
+}
+
 /**
- * Extracts slideshow image URLs from a TikTok post page. TikTok embeds its state as JSON in a
- * `<script>` tag (`__UNIVERSAL_DATA_FOR_REHYDRATION__` or the older `SIGI_STATE`); this finds any
- * `imagePost.images[*]` there without depending on the exact nesting.
+ * Parses the JSON state TikTok embeds in post pages (`__UNIVERSAL_DATA_FOR_REHYDRATION__`, or the
+ * older `SIGI_STATE`). Used as the fallback when yt-dlp can't download a post, and for slideshows.
+ * Finds `itemStruct` / `imagePost` / `statusCode` wherever they are nested.
  */
-object SlideshowParser {
+object PageParser {
 
     private val scriptRegex = Regex(
         """<script[^>]*id="(?:__UNIVERSAL_DATA_FOR_REHYDRATION__|SIGI_STATE|__NEXT_DATA__)"[^>]*>(.*?)</script>""",
         RegexOption.DOT_MATCHES_ALL,
     )
 
-    fun imageUrls(html: String): List<String> {
-        val json = scriptRegex.findAll(html).mapNotNull { runCatching { lenientJson.parseToJsonElement(it.groupValues[1]) }.getOrNull() }
-        for (root in json) {
-            val imagePost = findKey(root, "imagePost") as? JsonObject ?: continue
-            val images = imagePost["images"] as? JsonArray ?: continue
-            val urls = images.mapNotNull { img ->
-                val o = img as? JsonObject ?: return@mapNotNull null
-                val holder = (o["imageURL"] ?: o["display_image"] ?: o["displayImage"] ?: o["owner_watermark_image"]) as? JsonObject
-                ((holder?.get("urlList") ?: holder?.get("url_list")) as? JsonArray)?.firstOrNull()
-                    ?.let { (it as? JsonPrimitive)?.contentOrNull }
-            }
-            if (urls.isNotEmpty()) return urls
+    fun parse(html: String): PageInfo? {
+        val roots = scriptRegex.findAll(html)
+            .mapNotNull { runCatching { lenientJson.parseToJsonElement(it.groupValues[1]) }.getOrNull() }
+            .toList()
+        if (roots.isEmpty()) return null
+        for (root in roots) {
+            val detail = findObjectWithKey(root, "itemInfo") ?: findObjectWithKey(root, "statusCode")
+            val item = (findKey(root, "itemStruct") as? JsonObject)
+                ?: ((findKey(root, "ItemModule") as? JsonObject)?.values?.firstOrNull() as? JsonObject)
+            val status = (detail?.get("statusCode") as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+            if (item == null && status == null) continue
+            val statusMsg = (detail?.get("statusMsg") as? JsonPrimitive)?.contentOrNull?.ifBlank { null }
+            if (item == null) return PageInfo(status, statusMsg, null, null, null, null, null, null, emptyList(), emptyList())
+
+            val author = item["author"]
+            val authorObj = author as? JsonObject
+            val handle = authorObj?.str("uniqueId", "unique_id") ?: (author as? JsonPrimitive)?.contentOrNull
+            val video = item["video"] as? JsonObject
+            return PageInfo(
+                statusCode = status ?: 0,
+                statusMessage = statusMsg,
+                id = item.str("id"),
+                caption = item.str("desc"),
+                author = authorObj?.str("nickname") ?: item.str("nickname") ?: handle,
+                authorHandle = handle,
+                posted = item.num("createTime")?.toLong()?.takeIf { it > 0 }?.let {
+                    Instant.ofEpochSecond(it).atZone(ZoneOffset.UTC).toLocalDate()
+                },
+                durationSeconds = video?.num("duration")?.toInt()?.takeIf { it > 0 },
+                covers = listOfNotNull(video?.str("cover"), video?.str("originCover")).distinct(),
+                imageUrls = imageUrls(item),
+            )
         }
-        return emptyList()
+        return null
+    }
+
+    private fun imageUrls(item: JsonObject): List<String> {
+        val imagePost = findKey(item, "imagePost") as? JsonObject ?: return emptyList()
+        val images = imagePost["images"] as? JsonArray ?: return emptyList()
+        return images.mapNotNull { img ->
+            val o = img as? JsonObject ?: return@mapNotNull null
+            val holder = (o["imageURL"] ?: o["display_image"] ?: o["displayImage"]) as? JsonObject
+            ((holder?.get("urlList") ?: holder?.get("url_list")) as? JsonArray)?.firstOrNull()
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+        }
     }
 
     private fun findKey(el: JsonElement, key: String, depth: Int = 0): JsonElement? {
@@ -163,5 +212,13 @@ object SlideshowParser {
             else -> null
         }
     }
-}
 
+    private fun findObjectWithKey(el: JsonElement, key: String, depth: Int = 0): JsonObject? {
+        if (depth > 30) return null
+        return when (el) {
+            is JsonObject -> if (key in el) el else el.values.firstNotNullOfOrNull { findObjectWithKey(it, key, depth + 1) }
+            is JsonArray -> el.firstNotNullOfOrNull { findObjectWithKey(it, key, depth + 1) }
+            else -> null
+        }
+    }
+}
