@@ -12,22 +12,27 @@ import io.github.audxius.loopkeep.core.NoteWriter
 import io.github.audxius.loopkeep.core.OEmbedInfo
 import io.github.audxius.loopkeep.core.OEmbedParser
 import io.github.audxius.loopkeep.core.PageInfo
+import io.github.audxius.loopkeep.core.CommentParser
+import io.github.audxius.loopkeep.core.CreatorComment
 import io.github.audxius.loopkeep.core.PageParser
+import io.github.audxius.loopkeep.core.ProfileInfo
+import io.github.audxius.loopkeep.core.ProfileParser
 import io.github.audxius.loopkeep.core.PlaylistParser
 import io.github.audxius.loopkeep.core.PostType
-import io.github.audxius.loopkeep.core.TagSuggester
 import io.github.audxius.loopkeep.core.TikTokUrls
 import io.github.audxius.loopkeep.core.VideoMeta
 import io.github.audxius.loopkeep.core.YtDlpInfo
 import io.github.audxius.loopkeep.core.YtDlpInfoParser
 import io.github.audxius.loopkeep.data.AppDatabase
 import io.github.audxius.loopkeep.data.QueueItem
+import io.github.audxius.loopkeep.data.QueueSource
 import io.github.audxius.loopkeep.index.Indexer
 import io.github.audxius.loopkeep.storage.VaultStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -73,6 +78,7 @@ class Processor(
 
         val collections = item.collections.orEmpty().split('\n').filter { it.isNotBlank() }
         val existing = db.videos().byTiktokId(id)
+        if (existing != null && item.source == QueueSource.REFRESH) return@withContext refreshCreatorInfo(storage, existing)
         if (existing != null && existing.status == NoteStatus.FULL.value && !item.force) {
             if (collections.isNotEmpty()) addCollections(storage, existing.noteDocId, collections)
             return@withContext Outcome.Done(NoteStatus.FULL, existing.noteName, "Already saved")
@@ -153,7 +159,10 @@ class Processor(
             // 6. The note.
             val caption = info?.caption ?: page?.caption ?: oembed?.caption ?: ""
             val handle = info?.authorHandle ?: page?.authorHandle ?: oembed?.authorHandle ?: handleHint
-            val existingTags = db.videos().tagStrings().flatMap { it.trim().split(' ') }.filter { it.isNotEmpty() }.toSet()
+            // Extras: the creator's profile (bio link) and their comments. Failures here never fail the item.
+            val profile = handle?.let { fetchProfile(it) }
+            val authorUid = info?.authorUid ?: page?.authorUid ?: profile?.uid
+            val comments = if (status == NoteStatus.UNAVAILABLE) null else fetchCreatorComments(id, authorUid, handle)
             val meta = VideoMeta(
                 tiktokId = id,
                 sourceUrl = TikTokUrls.canonicalUrl(id, handle, isPhoto || images.isNotEmpty()),
@@ -161,7 +170,6 @@ class Processor(
                 authorHandle = handle,
                 posted = info?.posted ?: page?.posted,
                 saved = item.savedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now(),
-                tags = TagSuggester.suggest(caption, existingTags, limit = 6),
                 collections = collections,
                 status = status,
                 type = type,
@@ -171,6 +179,9 @@ class Processor(
                 audioFile = audioName,
                 imageFiles = imageNames,
                 caption = caption,
+                authorLink = profile?.link,
+                authorBio = profile?.bio,
+                creatorComments = comments,
             )
             val noteName = writeNote(storage, meta, existing?.noteDocId, noteNames)
             val message = when (status) {
@@ -219,6 +230,66 @@ class Processor(
         if (!NoteWriter.addCollections(doc.frontmatter, collections)) return
         storage.writeText(noteDocId, doc.render())
         storage.info(noteDocId)?.let { indexer.indexNote(storage, it) }
+    }
+
+    // Creator profiles are fetched once per handle per hour; a batch often has many posts per creator.
+    private val profileCache = object : LinkedHashMap<String, Pair<Long, ProfileInfo?>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, ProfileInfo?>>?) = size > 200
+    }
+
+    private fun fetchProfile(handle: String): ProfileInfo? {
+        val key = handle.lowercase()
+        synchronized(profileCache) {
+            profileCache[key]?.let { (at, info) -> if (System.currentTimeMillis() - at < 3_600_000L) return info }
+        }
+        val info = runCatching { ProfileParser.parse(Http.getText(TikTokUrls.profileUrl(handle))) }
+            .onFailure { Log.w(TAG, "Profile fetch failed for $handle: ${it.message}") }
+            .getOrNull()
+        synchronized(profileCache) { profileCache[key] = System.currentTimeMillis() to info }
+        return info
+    }
+
+    /**
+     * The creator's own comments and replies, from the first few pages of comments (TikTok sorts
+     * by relevance, so creator replies tend to be near the top). Null if TikTok didn't answer.
+     */
+    private suspend fun fetchCreatorComments(id: String, authorUid: String?, handle: String?): List<CreatorComment>? {
+        val out = mutableListOf<CreatorComment>()
+        var cursor = 0L
+        for (page in 0 until MAX_COMMENT_PAGES) {
+            val body = runCatching {
+                Http.getText("https://www.tiktok.com/api/comment/list/?aid=1988&aweme_id=$id&count=50&cursor=$cursor")
+            }.getOrNull() ?: return if (page == 0) null else out
+            val parsed = CommentParser.parse(body, authorUid, handle) ?: return if (page == 0) null else out
+            out += parsed.creatorComments
+            if (!parsed.hasMore || parsed.cursor <= cursor) break
+            cursor = parsed.cursor
+            delay(400)
+        }
+        return out.distinct()
+    }
+
+    /** Adds creator comments and the bio link to an already-saved note without downloading anything. */
+    private suspend fun refreshCreatorInfo(storage: VaultStorage, existing: io.github.audxius.loopkeep.data.VideoEntity): Outcome {
+        val handle = existing.authorHandle.ifBlank { null }
+        val profile = handle?.let { fetchProfile(it) }
+        val comments = fetchCreatorComments(existing.tiktokId, profile?.uid, handle)
+        if (profile == null && comments == null) return Outcome.Retry("TikTok didn't answer")
+        val text = try {
+            storage.readText(existing.noteDocId)
+        } catch (e: IOException) {
+            return Outcome.Fail("Note not found; rescan the folder")
+        }
+        val updated = NoteWriter.updateCreatorInfo(text, handle, profile?.link, profile?.bio, comments)
+        if (updated != text) {
+            storage.writeText(existing.noteDocId, updated)
+            storage.info(existing.noteDocId)?.let { indexer.indexNote(storage, it) }
+        }
+        val n = comments?.size ?: 0
+        return Outcome.Done(
+            NoteStatus.from(existing.status), existing.noteName,
+            if (n > 0) "$n creator comment${if (n == 1) "" else "s"} saved" else "No creator comments",
+        )
     }
 
     /** Runs yt-dlp so that cancelling the coroutine also kills the yt-dlp process. */
@@ -310,6 +381,7 @@ class Processor(
     private companion object {
         const val TAG = "Processor"
         const val MIN_FREE_BYTES = 300L * 1024 * 1024
+        const val MAX_COMMENT_PAGES = 6
         val VIDEO_EXTS = setOf("mp4", "mov", "webm", "mkv", "m4v")
         val AUDIO_EXTS = setOf("mp3", "m4a", "aac", "opus", "ogg")
     }

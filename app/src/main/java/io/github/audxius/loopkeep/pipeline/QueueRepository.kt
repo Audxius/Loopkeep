@@ -129,6 +129,21 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
         (existing.orEmpty().split('\n') + more).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
             .joinToString("\n").ifEmpty { null }
 
+    /** Queues a creator-comments and profile-link refresh for saved posts. Nothing is re-downloaded. */
+    suspend fun refreshCreatorInfo(posts: List<io.github.audxius.loopkeep.data.VideoEntity>): Int {
+        var added = 0
+        db.withTransaction {
+            for (p in posts) {
+                val existing = db.queue().findExisting(p.tiktokId, p.sourceUrl)
+                if (existing?.state == QueueState.PENDING || existing?.state == QueueState.RUNNING) continue
+                db.queue().insert(QueueItem(url = p.sourceUrl.ifBlank { TikTokUrls.canonicalUrl(p.tiktokId) }, tiktokId = p.tiktokId, source = QueueSource.REFRESH, savedDate = null))
+                added++
+            }
+        }
+        if (added > 0) QueueWorker.start(context)
+        return added
+    }
+
     suspend fun retryFailed(): Int = db.queue().retryFailed(System.currentTimeMillis()).also { if (it > 0) QueueWorker.start(context) }
 
     suspend fun retryWaitingNow() {

@@ -47,6 +47,10 @@ data class VideoEntity(
     val imageUris: String,
     /** Collection names, newline-separated with a leading and trailing newline ("\nA\nB\n"). */
     @ColumnInfo(defaultValue = "") val collections: String = "",
+    /** Markdown of the note's `## Creator comments` section. */
+    @ColumnInfo(defaultValue = "") val creatorComments: String = "",
+    /** Link from the creator's profile bio, if saved. */
+    val authorLink: String? = null,
 ) {
     val tagList: List<String> get() = tags.trim().split(' ').filter { it.isNotEmpty() }
     val imageUriList: List<String> get() = imageUris.split('\n').filter { it.isNotEmpty() }
@@ -77,6 +81,8 @@ object QueueSource {
     const val MANUAL = "manual"
     const val RETRY = "retry"
     const val COLLECTION = "collection"
+    /** Fetch creator comments and profile link for an already-saved post; no download. */
+    const val REFRESH = "refresh"
 }
 
 @Entity(tableName = "queue", indices = [Index("tiktokId"), Index("url"), Index("state", "nextAttemptAt")])
