@@ -38,6 +38,6 @@ Requirements: Android 8.0+ on a 64-bit phone (arm64). 32-bit-only devices are no
 - **Slideshow / photo posts.** Image extraction follows TikTok's page JSON as yt-dlp reads it, but hasn't been tested on a real photo post.
 - **Short links** (`vm.tiktok.com/…`, as produced by TikTok's share button) haven't been resolved live. This is the first thing to check with the share sheet.
 - **A physical phone:** real share-sheet entry from the TikTok app, playback performance on long feeds, notification behaviour, battery, and long imports under Android's background limits.
-- **GitHub Actions runs:** the workflows haven't run on GitHub yet (no push was made). The first push runs CI; the first tag runs the release.
+- **The release workflow on GitHub:** CI has passed on GitHub (tests, lint, debug APK artifact), but the release workflow needs your signing secrets and a tag, so it hasn't run yet. Its signing and versioning steps were verified locally.
 - **Large libraries** (thousands of notes): rescan speed and grid scrolling were only tested with a handful of items.
 - **Private posts / private accounts**, region-blocked posts, and captcha pages from TikTok.
