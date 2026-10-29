@@ -86,7 +86,7 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: >
-          ./gradlew --no-configuration-cache testReleaseUnitTest assembleRelease
+          ./gradlew --no-configuration-cache testDebugUnitTest assembleRelease
           -PappVersionName=${{ steps.version.outputs.name }}
           -PappVersionCode=${{ steps.version.outputs.code }}
           -PrequireReleaseSigning=true
