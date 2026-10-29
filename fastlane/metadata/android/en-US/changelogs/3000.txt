@@ -1,0 +1,4 @@
+• Saves the creator's own comments and replies under each post
+• Saves the link and text from the creator's bio; tap the creator to open their profile
+• Settings → Fetch creator comments & links, for posts saved earlier
+• No more tags copied from hashtags; old auto-tags removed once

@@ -21,7 +21,8 @@ Loopkeep downloads the videos you saved on TikTok to your phone, together with t
 
 - **Your own feed.** Full-screen vertical swiping, loop, tap to pause, seek, mute, photo carousels with sound. No account, no algorithm, no tracking, no infinite scroll: only what you saved, newest, oldest or shuffled.
 - **Everything findable.** Full-text search over captions, tags, notes and creators, plus filters by collection, status, tag and creator.
-- **Organised your way.** Collections, tags suggested from hashtags, and your own notes, all written back into the Markdown.
+- **Straight from the creator.** The creator's own comments and replies under each post are saved with it, and so is the link in their bio. Tap the creator to open their TikTok profile.
+- **Organised your way.** Collections, your own tags and notes, all written back into the Markdown.
 - **Honest about gaps.** Counters for saved, partial, unavailable and failed posts. If a video can't be downloaded, its caption and cover are still kept and you can retry later.
 
 **The files are the product, the app is a viewer.** If Loopkeep disappears, the folder is still a complete, readable archive.
@@ -51,7 +52,8 @@ Requires Android 8.0 or newer on a 64-bit phone.
    - **Share a collection.** In TikTok, make the collection public and share its link to Loopkeep. Its posts are saved and filed into that collection. (TikTok often refuses to list collections to apps; if so, Loopkeep tells you, and you can add the videos one by one and file them in the edit sheet.)
    - **Paste** links in Settings.
 3. **Watch.** Tap a thumbnail or *Play*. Swipe up/down, tap to pause, drag the thin bar to seek, tap the caption to read all of it. The feed follows your current search, filters and collection.
-4. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press a thumbnail or use *Delete* in the feed to remove a post and its files.
+4. **Creators.** Tap the creator's name to open their TikTok profile, or their bio link right under it. If they commented on the post, the *Creator* button shows their comments and replies.
+5. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press a thumbnail or use *Delete* in the feed to remove a post and its files.
 
 Downloads run in the background, one at a time and a few seconds apart, and resume after interruptions. The cloud icon shows the queue, with *Retry failed*. If downloads suddenly start failing, TikTok has probably changed something: *Settings → Update yt-dlp now*, then *Retry failed*.
 
@@ -71,9 +73,11 @@ tiktok_id: "7300000000000000001"
 source_url: https://www.tiktok.com/@chef/video/7300000000000000001
 author: Chef Anna
 author_handle: chef
+author_url: https://www.tiktok.com/@chef
+author_link: https://chefanna.example/recipes
 posted: 2025-03-01
 saved: 2025-03-14
-tags: [recipe, pasta]
+tags: [weeknight]
 collections: [Weeknight dinners]
 status: full
 duration: 34
@@ -85,12 +89,19 @@ cover: "[[7300000000000000001.jpg]]"
 
 Best pasta ever 🍝 #recipe #pasta
 
+## Creator comments
+
+> @pastafan: how long do you boil it?
+
+**@chef:** 9 minutes, then 2 in the pan!
+
 ## Notes
 Made this on Sunday, add more garlic.
 ```
 
 - `status` is `full` (saved), `text-only` (caption and cover only, shown as *Partial*; retry later), or `unavailable` (TikTok says the post is gone or private).
 - Photo posts get `type: slideshow`, their images, and the sound.
+- `## Creator comments` holds the creator's own comments and their replies (with the comment they answered). `author_link` and `author_bio` are the link and text from the creator's profile at the time of saving, so they survive even after TikTok is gone. For posts saved before this existed: *Settings → Fetch creator comments & links*.
 - Edit freely in Obsidian. Loopkeep only changes its own frontmatter keys and the `## Notes` section; your caption edits, extra properties and extra sections are left alone. Changes you make in Obsidian show up the next time you open the app.
 
 ## Backup

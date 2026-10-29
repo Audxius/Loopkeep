@@ -18,10 +18,17 @@
 <li>If a video can't be downloaded, its caption and cover are still kept</li>
 </ul>
 
+<p><b>Straight from the creator</b></p>
+<ul>
+<li>The creator's own comments and replies under each post are saved with it</li>
+<li>The link in their bio is kept, so it's there even after TikTok is gone</li>
+<li>Tap the creator to open their TikTok profile</li>
+</ul>
+
 <p><b>Find and organise</b></p>
 <ul>
 <li>Full-text search over captions, tags, notes and creators</li>
-<li>Collections, tags (suggested from hashtags) and your own notes</li>
+<li>Collections, your own tags and notes</li>
 <li>Filters by collection, status, tag and creator</li>
 <li>Counters for saved, partial, unavailable and failed posts</li>
 </ul>

@@ -70,7 +70,7 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - If nothing at all can be fetched (network, captcha page), the item is retried with backoff (1 min doubling, capped at 6 h, ±20 % jitter) and marked **failed** after 6 attempts **without writing a note**. It shows in the queue with the error and can be retried. I didn't want to write misleading notes.
 - Queue: one item at a time, 2.5–6 s random pause between items, WorkManager with a network constraint, foreground notification (dataSync). Interrupted items go back to pending. Below 300 MB free (app cache), downloads pause 30 min.
 - yt-dlp auto-updates at most every 3 days at the start of a batch (switch in Settings). There's also a manual "Update yt-dlp now".
-- **Tags:** new notes get up to 6 tags from the caption's hashtags, lower-cased, minus engagement noise (`fyp`, `foryou…`, `viral`, …) and all-digit tags. The edit sheet suggests more (hashtags plus existing library tags that appear in the caption).
+- **Tags:** since v0.3 the app never adds tags by itself (hashtag tags were noise). Tags are yours; the edit sheet suggests your most-used ones. On first start of v0.3 the app removes the hashtag tags older versions wrote, but only from notes whose tags are *all* hashtags from the caption, so any note with a tag you added keeps all of its tags.
 - **Filenames:** `handle - first 7 words of caption - last 6 digits of id.md`. Hashtags and mentions are skipped unless the caption is only hashtags. Letters of any script are kept; emoji, punctuation and ``\/:*?"<>|#^[]`` are dropped; the curly apostrophe becomes `'`. Capped at 120 bytes. With no author or caption: `tiktok - 123456.md`. Never renamed after creation; collisions get ` (2)`.
 - `saved:` is the export date if known, else the date it was queued (share/paste).
 - `type:` is written only for slideshows (`type: slideshow`, with `images:` and `audio:` when present). Videos omit it; absent means video.
@@ -87,6 +87,15 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - Shared components in `ui/Components.kt`: `GradientButton`, `StatusPill`, `Avatar`, `StatTile`, `SectionCard`/`SettingRow`, `PlainTextField`. The latter makes the whole visible input area tappable (the earlier version only reacted on the first text line).
 - Counters (saved / partial / gone / failed) sit at the top of the library; tapping one filters by it, and *Failed* opens the downloads screen.
 - Screenshots in `fastlane/metadata/android/en-US/images` (the F-Droid/IzzyOnDroid layout) were taken on the emulator with public posts from @tiktok, @natgeo and @nasa, using a synthetic export.
+
+**Creator comments and profile links (v0.3)**
+- yt-dlp doesn't fetch TikTok comments. The app calls TikTok's web endpoint `api/comment/list/?aid=1988&aweme_id=<id>&count=50&cursor=<n>` directly; it answered unsigned requests on 2026-10-29.
+- The creator is recognised by the comment's `label_list` entry "Creator", their numeric user id (yt-dlp `uploader_id`, page `author.id`, or profile `id`), or their handle. Their replies appear in each comment's `reply_comment` preview; they're saved with the comment they answer.
+- Only the first 6 pages (300 top-level comments) are read, 0.4 s apart, and reply threads are not expanded beyond TikTok's preview. A creator reply buried deep in a big thread can be missed.
+- The bio link is **not** on the post page (`bioLink` is null there); it's on the profile page (`webapp.user-detail.userInfo.user.bioLink.link`, sometimes without a scheme). Profiles are fetched once per creator per hour.
+- Saved as `author_url`, `author_link`, `author_bio` (managed keys; link and bio are refreshed on later fetches) and a managed `## Creator comments` section placed above `## Notes`. Comments are never removed by a later fetch that finds none.
+- *Settings → Fetch creator comments & links* queues a `refresh` item per saved post: it fetches profile and comments only, rewrites just those parts of the note, and downloads nothing.
+- Room schema v3 adds `creatorComments` and `authorLink` with a migration (re-reads notes once).
 
 **Collections**
 - TikTok's data export most likely does **not** contain collections: third-party write-ups say favourites are one flat list. So collections come from:
