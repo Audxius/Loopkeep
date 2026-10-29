@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -55,6 +56,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,7 +96,7 @@ private fun VideoEntity.playableUri(): String? = when {
 fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
     val live by vm.items.collectAsStateWithLifecycle()
     // Freeze the order while watching, so new downloads or edits don't make the pager jump.
-    val order = remember { live.orEmpty().map { it.tiktokId } }
+    val order = remember { live.orEmpty().map { it.tiktokId }.toMutableStateList() }
     val byId = remember(live) { live.orEmpty().associateBy { it.tiktokId } }
     val startIndex = remember { order.indexOf(startTiktokId).coerceAtLeast(0) }
     val snackbar = remember { SnackbarHostState() }
@@ -114,6 +116,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
 
     val pagerState = rememberPagerState(initialPage = startIndex) { order.size }
     var editing by remember { mutableStateOf<VideoEntity?>(null) }
+    var deleting by remember { mutableStateOf<VideoEntity?>(null) }
     var resumed by remember { mutableStateOf(true) }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -129,7 +132,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    val current = pagerState.settledPage
+    val current = pagerState.settledPage.coerceAtMost(order.lastIndex)
     val currentUri = byId[order[current]]?.playableUri()
     LaunchedEffect(current, currentUri, resumed, editing) {
         if (resumed && editing == null) pool.activate(current, currentUri) else pool.pauseAll()
@@ -156,6 +159,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
                 muted = muted,
                 onToggleMute = { muted = !muted; pool.muted = muted; vm.muted = muted },
                 onEdit = { editing = item },
+                onDelete = { deleting = item },
                 onRetry = { vm.retry(item) },
             )
         }
@@ -173,6 +177,13 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
     editing?.let { e ->
         EditSheet(vm, byId[e.tiktokId] ?: e, onDismiss = { editing = null })
     }
+    deleting?.let { d ->
+        DeleteDialog(d, onConfirm = {
+            vm.delete(d)
+            order.remove(d.tiktokId)
+            if (order.isEmpty()) vm.back()
+        }, onDismiss = { deleting = null })
+    }
 }
 
 @Composable
@@ -183,6 +194,7 @@ private fun FeedPage(
     muted: Boolean,
     onToggleMute: () -> Unit,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
     onRetry: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -197,7 +209,7 @@ private fun FeedPage(
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB0000000)))),
         )
         CaptionOverlay(item, Modifier.align(Alignment.BottomStart).padding(end = 72.dp))
-        SideActions(item, player != null, muted, onToggleMute, onEdit, Modifier.align(Alignment.BottomEnd))
+        SideActions(item, player != null, muted, onToggleMute, onEdit, onDelete, Modifier.align(Alignment.BottomEnd))
         if (player != null && item.type == PostType.VIDEO.value) {
             SeekBar(player, isCurrent, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
         }
@@ -321,7 +333,15 @@ private fun CaptionOverlay(item: VideoEntity, modifier: Modifier) {
 }
 
 @Composable
-private fun SideActions(item: VideoEntity, hasSound: Boolean, muted: Boolean, onToggleMute: () -> Unit, onEdit: () -> Unit, modifier: Modifier) {
+private fun SideActions(
+    item: VideoEntity,
+    hasSound: Boolean,
+    muted: Boolean,
+    onToggleMute: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier,
+) {
     val context = LocalContext.current
     Column(
         modifier.navigationBarsPadding().padding(end = 8.dp, bottom = 40.dp),
@@ -337,6 +357,7 @@ private fun SideActions(item: VideoEntity, hasSound: Boolean, muted: Boolean, on
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, item.sourceUrl.toUri())) }
             }
         }
+        RoundAction(Icons.Default.Delete, "Delete", onDelete)
     }
 }
 

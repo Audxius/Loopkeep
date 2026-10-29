@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,6 +124,8 @@ fun LibraryScreen(vm: AppViewModel) {
         if (uri != null) vm.readExport(uri)
     }
     val active = (queueCounts[QueueState.PENDING] ?: 0) + (queueCounts[QueueState.RUNNING] ?: 0)
+    var deleting by remember { mutableStateOf<VideoEntity?>(null) }
+    deleting?.let { d -> DeleteDialog(d, onConfirm = { vm.delete(d) }, onDismiss = { deleting = null }) }
 
     Scaffold(
         topBar = {
@@ -167,7 +170,7 @@ fun LibraryScreen(vm: AppViewModel) {
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(list, key = { it.tiktokId }) { item ->
-                        GridCell(item) { vm.open(Screen.Feed(item.tiktokId)) }
+                        GridCell(item, onLongClick = { deleting = item }) { vm.open(Screen.Feed(item.tiktokId)) }
                     }
                 }
             }
@@ -250,8 +253,8 @@ fun statusLabel(status: String) = when (status) {
 }
 
 @Composable
-private fun GridCell(item: VideoEntity, onClick: () -> Unit) {
-    Box(Modifier.aspectRatio(9f / 16f).background(Color(0xFF202020)).clickable(onClick = onClick)) {
+private fun GridCell(item: VideoEntity, onLongClick: () -> Unit, onClick: () -> Unit) {
+    Box(Modifier.aspectRatio(9f / 16f).background(Color(0xFF202020)).combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         if (item.coverUri != null) {
             AsyncImage(model = item.coverUri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {

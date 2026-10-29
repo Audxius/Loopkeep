@@ -147,6 +147,10 @@ class VaultStorage(private val resolver: ContentResolver, val treeUri: Uri) {
     fun delete(documentId: String): Boolean =
         runCatching { DocumentsContract.deleteDocument(resolver, uriOf(documentId)) }.getOrDefault(false)
 
+    /** Deletes the children of [parentId] with these names. Returns how many were deleted. */
+    fun deleteNamed(parentId: String, names: Set<String>): Int =
+        if (names.isEmpty()) 0 else listChildren(parentId).filter { it.name in names }.count { delete(it.documentId) }
+
     /** Human-readable location, e.g. "primary:Obsidian/TikTok" → "Obsidian/TikTok". */
     fun displayPath(): String = rootId.substringAfter(':', rootId).ifEmpty { "/" }
 
