@@ -99,7 +99,7 @@ jobs:
             exit 1
           fi
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
-          "$apksigner" verify --print-certs "${apks[0]}" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          "$apksigner" verify --print-certs "${apks[0]}" | grep -E "certificate (DN|SHA-256)"
           mkdir -p dist
           cp "${apks[0]}" dist/loopkeep.apk
 

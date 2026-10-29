@@ -9,11 +9,11 @@ val appVersionName = providers.gradleProperty("appVersionName").getOrElse("0.0.0
 val appVersionCode = providers.gradleProperty("appVersionCode").getOrElse("1").toInt()
 
 // Release signing is read from the environment so no secret ever lives in the repo.
-val keystorePath: String? = System.getenv("RELEASE_KEYSTORE_PATH")
-val keystorePassword: String? = System.getenv("RELEASE_KEYSTORE_PASSWORD")
-val keyAliasName: String? = System.getenv("RELEASE_KEY_ALIAS")
-val keyPassword: String? = System.getenv("RELEASE_KEY_PASSWORD")
-val hasReleaseSigning = listOf(keystorePath, keystorePassword, keyAliasName, keyPassword).all { !it.isNullOrBlank() }
+val releaseStorePath: String? = System.getenv("RELEASE_KEYSTORE_PATH")
+val releaseStorePassword: String? = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+val releaseKeyAlias: String? = System.getenv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword: String? = System.getenv("RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword).all { !it.isNullOrBlank() }
 val requireReleaseSigning = providers.gradleProperty("requireReleaseSigning").getOrElse("false").toBoolean()
 
 if (requireReleaseSigning && !hasReleaseSigning) {
@@ -43,10 +43,10 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
-                storeFile = file(keystorePath!!)
-                storePassword = keystorePassword
-                keyAlias = keyAliasName
-                this.keyPassword = keyPassword
+                storeFile = file(releaseStorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
