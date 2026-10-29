@@ -26,5 +26,5 @@ signing/
 # Real TikTok data used for local testing
 samples/
 
-# Personal Claude Code overrides
+# Personal local tool overrides
 .claude/settings.local.json

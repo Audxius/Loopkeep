@@ -1,6 +1,6 @@
 package io.github.audxius.loopkeep.core
 
-/** Suggests tags from a caption's hashtags with plain heuristics. No AI. */
+/** Suggests tags from a caption's hashtags with plain heuristics. */
 object TagSuggester {
 
     private val hashtag = Regex("""#([\p{L}\p{N}_]+)""")
