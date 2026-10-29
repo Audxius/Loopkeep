@@ -19,6 +19,8 @@ data class YtDlpInfo(
     val caption: String?,
     val author: String?,
     val authorHandle: String?,
+    /** TikTok's numeric user id of the creator. */
+    val authorUid: String? = null,
     val posted: LocalDate?,
     val durationSeconds: Int?,
     /** Cover candidates, best first. */
@@ -82,6 +84,7 @@ object YtDlpInfoParser {
             caption = obj.str("description", "title", "fulltitle"),
             author = author,
             authorHandle = handle,
+            authorUid = obj.str("uploader_id")?.takeIf { id -> id.all(Char::isDigit) },
             posted = posted,
             durationSeconds = obj.num("duration")?.let { kotlin.math.round(it).toInt() }?.takeIf { it > 0 },
             thumbnails = thumbnails(obj),
@@ -141,6 +144,10 @@ data class PageInfo(
     val covers: List<String>,
     /** Slideshow images, in order. Empty for regular videos. */
     val imageUrls: List<String>,
+    val authorUid: String? = null,
+    /** Profile bio and the link in it, as shown on the post page. */
+    val authorBio: String? = null,
+    val authorLink: String? = null,
 ) {
     val isAvailable: Boolean get() = statusCode == null || statusCode == 0
 }
@@ -190,6 +197,10 @@ object PageParser {
                 durationSeconds = video?.num("duration")?.toInt()?.takeIf { it > 0 },
                 covers = listOfNotNull(video?.str("cover"), video?.str("originCover")).distinct(),
                 imageUrls = imageUrls(item),
+                authorUid = authorObj?.str("id"),
+                authorBio = authorObj?.str("signature"),
+                authorLink = (authorObj?.get("bioLink") as? JsonObject)?.str("link")
+                    ?.let { if (it.startsWith("http")) it else "https://$it" },
             )
         }
         return null
@@ -249,5 +260,44 @@ object PlaylistParser {
                 else -> null
             }
         }.distinct()
+    }
+}
+
+data class ProfileInfo(val uid: String?, val handle: String?, val nickname: String?, val bio: String?, val link: String?)
+
+/**
+ * Reads a creator's profile page (`tiktok.com/@handle`): bio and the link in it. The post page
+ * doesn't include the bio link (checked live 2026-10-29), the profile page does (`bioLink.link`).
+ */
+object ProfileParser {
+    private val scriptRegex = Regex(
+        """<script[^>]*id="(?:__UNIVERSAL_DATA_FOR_REHYDRATION__|SIGI_STATE)"[^>]*>(.*?)</script>""",
+        RegexOption.DOT_MATCHES_ALL,
+    )
+
+    fun parse(html: String): ProfileInfo? {
+        for (m in scriptRegex.findAll(html)) {
+            val root = runCatching { lenientJson.parseToJsonElement(m.groupValues[1]) }.getOrNull() ?: continue
+            val userInfo = findObject(root, "userInfo") ?: continue
+            val user = userInfo["user"] as? JsonObject ?: continue
+            val link = (user["bioLink"] as? JsonObject)?.str("link")
+            return ProfileInfo(
+                uid = user.str("id"),
+                handle = user.str("uniqueId"),
+                nickname = user.str("nickname"),
+                bio = user.str("signature"),
+                link = link?.let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" },
+            )
+        }
+        return null
+    }
+
+    private fun findObject(el: JsonElement, key: String, depth: Int = 0): JsonObject? {
+        if (depth > 12) return null
+        return when (el) {
+            is JsonObject -> (el[key] as? JsonObject) ?: el.values.firstNotNullOfOrNull { findObject(it, key, depth + 1) }
+            is JsonArray -> el.firstNotNullOfOrNull { findObject(it, key, depth + 1) }
+            else -> null
+        }
     }
 }

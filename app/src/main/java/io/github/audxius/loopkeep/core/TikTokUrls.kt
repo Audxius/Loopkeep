@@ -59,6 +59,8 @@ object TikTokUrls {
         return decoded.replace('-', ' ').trim().ifEmpty { null }
     }
 
+    fun profileUrl(handle: String): String = "https://www.tiktok.com/@${handle.removePrefix("@")}"
+
     /** True if this is a link to a video/photo post (not a profile, sound, or hashtag page). */
     fun isPostUrl(url: String): Boolean = isShortLink(url) || extractVideoId(url) != null
 }

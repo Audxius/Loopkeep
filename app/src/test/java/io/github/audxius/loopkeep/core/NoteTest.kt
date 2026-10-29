@@ -29,6 +29,7 @@ class NoteTest {
             source_url: https://www.tiktok.com/@chef/video/7300000000000000001
             author: Chef Anna
             author_handle: chef
+            author_url: https://www.tiktok.com/@chef
             posted: 2025-03-01
             saved: 2025-03-14
             tags: [recipe, pasta]

@@ -10,6 +10,9 @@ object NoteWriter {
         fm.set(NoteKeys.SOURCE_URL, meta.sourceUrl)
         fm.set(NoteKeys.AUTHOR, meta.author ?: meta.authorHandle ?: "")
         fm.set(NoteKeys.AUTHOR_HANDLE, meta.authorHandle ?: "")
+        meta.authorHandle?.takeIf { it.isNotBlank() }?.let { fm.set(NoteKeys.AUTHOR_URL, TikTokUrls.profileUrl(it)) }
+        meta.authorLink?.let { fm.set(NoteKeys.AUTHOR_LINK, it) }
+        meta.authorBio?.let { fm.set(NoteKeys.AUTHOR_BIO, it) }
         meta.posted?.let { fm.set(NoteKeys.POSTED, it.toString()) }
         fm.set(NoteKeys.SAVED, meta.saved.toString())
         fm.setList(NoteKeys.TAGS, meta.tags)
@@ -20,6 +23,7 @@ object NoteWriter {
         body.append(meta.caption.replace("\r\n", "\n").trim())
         body.append("\n\n").append(NoteKeys.NOTES_HEADING).append("\n\n")
         fm.body = "\n" + body.toString()
+        applyCreatorComments(doc, meta)
         doc.setEmbeds(embedsFor(meta))
         return doc.render()
     }
@@ -37,6 +41,10 @@ object NoteWriter {
         fillGap(fm, NoteKeys.AUTHOR, meta.author)
         fillGap(fm, NoteKeys.AUTHOR_HANDLE, meta.authorHandle)
         fillGap(fm, NoteKeys.POSTED, meta.posted?.toString())
+        meta.authorHandle?.takeIf { it.isNotBlank() }?.let { fillGap(fm, NoteKeys.AUTHOR_URL, TikTokUrls.profileUrl(it)) }
+        // Bio and link reflect the profile now; refresh them when we have newer ones.
+        meta.authorLink?.let { fm.set(NoteKeys.AUTHOR_LINK, it) }
+        meta.authorBio?.let { fm.set(NoteKeys.AUTHOR_BIO, it) }
         val tags = (fm.getList(NoteKeys.TAGS) + meta.tags).distinct()
         if (tags != fm.getList(NoteKeys.TAGS) || NoteKeys.TAGS !in fm) fm.setList(NoteKeys.TAGS, tags)
         addCollections(fm, meta.collections)
@@ -44,6 +52,7 @@ object NoteWriter {
         // Only rewrite the embeds if we now have something better to show.
         if (meta.status != NoteStatus.UNAVAILABLE) doc.setEmbeds(embedsFor(meta))
         if (doc.caption().isBlank() && meta.caption.isNotBlank()) doc.fillCaption(meta.caption)
+        applyCreatorComments(doc, meta)
         return doc.render()
     }
 
@@ -54,6 +63,27 @@ object NoteWriter {
         if (merged == current) return false
         fm.setList(NoteKeys.COLLECTIONS, merged)
         return true
+    }
+
+    /**
+     * Updates only the creator's profile link/bio and the creator comments section of a note.
+     * Media, status, caption and everything else stay exactly as they are.
+     */
+    fun updateCreatorInfo(existingText: String, handle: String?, link: String?, bio: String?, comments: List<CreatorComment>?): String {
+        val doc = NoteDocument.parse(existingText)
+        val fm = doc.frontmatter
+        handle?.takeIf { it.isNotBlank() }?.let { fillGap(fm, NoteKeys.AUTHOR_URL, TikTokUrls.profileUrl(it)) }
+        link?.let { fm.set(NoteKeys.AUTHOR_LINK, it) }
+        bio?.let { fm.set(NoteKeys.AUTHOR_BIO, it) }
+        if (!comments.isNullOrEmpty()) doc.setCreatorComments(CreatorCommentsMarkdown.render(handle, comments))
+        return doc.render()
+    }
+
+    /** Writes the creator comments section when we found some. Never removes existing ones. */
+    private fun applyCreatorComments(doc: NoteDocument, meta: VideoMeta) {
+        val comments = meta.creatorComments ?: return
+        if (comments.isEmpty()) return
+        doc.setCreatorComments(CreatorCommentsMarkdown.render(meta.authorHandle, comments))
     }
 
     private fun fillGap(fm: Frontmatter, key: String, value: String?) {

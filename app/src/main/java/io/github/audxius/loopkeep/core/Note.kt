@@ -36,7 +36,12 @@ object NoteKeys {
     const val AUDIO = "audio"
     const val IMAGES = "images"
 
+    const val AUTHOR_URL = "author_url"
+    const val AUTHOR_LINK = "author_link"
+    const val AUTHOR_BIO = "author_bio"
+
     const val NOTES_HEADING = "## Notes"
+    const val CREATOR_COMMENTS_HEADING = "## Creator comments"
 }
 
 /** Everything known about a post when its note is written. */
@@ -58,6 +63,11 @@ data class VideoMeta(
     val audioFile: String? = null,
     val imageFiles: List<String> = emptyList(),
     val caption: String = "",
+    /** Link in the creator's profile bio, if any. */
+    val authorLink: String? = null,
+    val authorBio: String? = null,
+    /** Null when comments weren't fetched (keeps whatever the note has); empty when there are none. */
+    val creatorComments: List<CreatorComment>? = null,
 )
 
 fun wikiLink(fileName: String) = "[[$fileName]]"
@@ -147,9 +157,12 @@ class NoteDocument private constructor(val frontmatter: Frontmatter) {
 
     /** The caption text for search and display: body minus embeds and the notes section. */
     fun caption(): String {
-        val lines = bodyLines()
-        val h = notesHeadingIndex(lines)
-        val withoutNotes = if (h >= 0) lines.subList(0, h) + lines.subList(sectionEnd(lines, h), lines.size) else lines
+        var lines: List<String> = bodyLines()
+        for (heading in listOf(NoteKeys.NOTES_HEADING, NoteKeys.CREATOR_COMMENTS_HEADING)) {
+            val h = headingIndex(lines, heading)
+            if (h >= 0) lines = lines.subList(0, h) + lines.subList(sectionEnd(lines, h), lines.size)
+        }
+        val withoutNotes = lines
         val range = leadingEmbedRange(withoutNotes)
         val rest = if (range.isEmpty()) withoutNotes else withoutNotes.subList(range.last + 1, withoutNotes.size)
         return rest.joinToString("\n").trim()
@@ -163,6 +176,39 @@ class NoteDocument private constructor(val frontmatter: Frontmatter) {
         var at = h
         while (at > 0 && lines[at - 1].isBlank()) { lines.removeAt(at - 1); at-- }
         lines.addAll(at, insert)
+        setBodyLines(lines)
+    }
+
+    private fun headingIndex(lines: List<String>, heading: String): Int {
+        val title = heading.removePrefix("## ")
+        return lines.indexOfLast { it.trim().matches(Regex("""##\s+""" + Regex.escape(title) + """\s*""")) }
+    }
+
+    /** Markdown inside `## Creator comments`, or "" when the note has none. */
+    fun creatorComments(): String {
+        val lines = bodyLines()
+        val h = headingIndex(lines, NoteKeys.CREATOR_COMMENTS_HEADING)
+        if (h < 0) return ""
+        return lines.subList(h + 1, sectionEnd(lines, h)).joinToString("\n").trim('\n', ' ', '\r')
+    }
+
+    /**
+     * Replaces the content of `## Creator comments` (an app-managed section), creating it just above
+     * `## Notes` when missing. Never touches the caption or the user's notes.
+     */
+    fun setCreatorComments(markdown: String) {
+        val lines = bodyLines()
+        val content = listOf("") + markdown.replace("\r\n", "\n").trim('\n').split("\n") + ""
+        val h = headingIndex(lines, NoteKeys.CREATOR_COMMENTS_HEADING)
+        if (h >= 0) {
+            val end = sectionEnd(lines, h)
+            lines.subList(h + 1, end).clear()
+            lines.addAll(h + 1, content)
+        } else {
+            var at = notesHeadingIndex(lines).let { if (it < 0) lines.size else it }
+            while (at > 0 && lines[at - 1].isBlank()) { lines.removeAt(at - 1); at-- }
+            lines.addAll(at, listOf("", NoteKeys.CREATOR_COMMENTS_HEADING) + content)
+        }
         setBodyLines(lines)
     }
 
