@@ -52,6 +52,15 @@ class TikTokUrlsTest {
         assertEquals("https://www.tiktok.com/@bob/photo/1", TikTokUrls.canonicalUrl("1", "bob", photo = true))
     }
 
+    @Test fun collectionUrls() {
+        val url = "https://www.tiktok.com/@me/collection/Pasta%20night-7371330159376370462?lang=en"
+        assertTrue(TikTokUrls.isCollectionUrl(url))
+        assertEquals("Pasta night", TikTokUrls.collectionName(url))
+        assertEquals("count test", TikTokUrls.collectionName("https://www.tiktok.com/@x/collection/count-test-7371330159376370462"))
+        assertEquals("😂", TikTokUrls.collectionName("https://www.tiktok.com/@x/collection/%F0%9F%98%82-7111887189571160875"))
+        assertFalse(TikTokUrls.isCollectionUrl("https://www.tiktok.com/@x/video/7300000000000000001"))
+    }
+
     @Test fun extractsHandle() {
         assertEquals("some.user", TikTokUrls.extractHandle("https://www.tiktok.com/@some.user/video/1"))
         assertNull(TikTokUrls.extractHandle("https://www.tiktok.com/@/video/1"))

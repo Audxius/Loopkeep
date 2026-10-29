@@ -131,6 +131,15 @@ class NoteTest {
         assertEquals("Anna (my aunt)", merged.frontmatter.getString(NoteKeys.AUTHOR))
     }
 
+    @Test fun collectionsWrittenAndMerged() {
+        val note = NoteWriter.newNote(meta.copy(collections = listOf("Recipes")))
+        assertTrue(note.contains("tags: [recipe, pasta]\ncollections: [Recipes]\n"))
+        val merged = NoteDocument.parse(NoteWriter.merge(note, meta.copy(collections = listOf("Weeknight dinners", "Recipes"))))
+        assertEquals(listOf("Recipes", "Weeknight dinners"), merged.frontmatter.getList(NoteKeys.COLLECTIONS))
+        // No collections: no key at all.
+        assertTrue(!NoteWriter.newNote(meta).contains("collections"))
+    }
+
     @Test fun slideshowNote() {
         val s = meta.copy(
             type = PostType.SLIDESHOW, videoFile = null, durationSeconds = null,

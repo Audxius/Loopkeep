@@ -233,3 +233,21 @@ object PageParser {
         }
     }
 }
+
+/** Reads the video links out of `yt-dlp --flat-playlist -J <collection url>` output. */
+object PlaylistParser {
+    fun videoUrls(json: String): List<String> {
+        val obj = runCatching { lenientJson.parseToJsonElement(json) }.getOrNull() as? JsonObject ?: return emptyList()
+        val entries = obj["entries"] as? JsonArray ?: return emptyList()
+        return entries.mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            val url = o.str("url", "webpage_url")
+            val id = o.str("id")
+            when {
+                url != null && TikTokUrls.extractVideoId(url) != null -> url
+                id != null && id.all { it.isDigit() } -> TikTokUrls.canonicalUrl(id)
+                else -> null
+            }
+        }.distinct()
+    }
+}

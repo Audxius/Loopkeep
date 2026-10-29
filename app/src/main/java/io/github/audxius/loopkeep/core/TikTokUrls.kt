@@ -48,6 +48,17 @@ object TikTokUrls {
     fun canonicalUrl(id: String, handle: String? = null, photo: Boolean = false): String =
         "https://www.tiktok.com/@${handle.orEmpty()}/${if (photo) "photo" else "video"}/$id"
 
+    private val collectionRegex = Regex("""tiktok\.com/@([A-Za-z0-9._-]+)/collection/([^/?#]+)-(\d+)""")
+
+    fun isCollectionUrl(url: String): Boolean = collectionRegex.containsMatchIn(url)
+
+    /** Collection name from a collection URL (`/collection/Pasta%20night-123` → "Pasta night"). */
+    fun collectionName(url: String): String? {
+        val slug = collectionRegex.find(url)?.groupValues?.get(2) ?: return null
+        val decoded = runCatching { java.net.URLDecoder.decode(slug.replace("+", "%2B"), "UTF-8") }.getOrDefault(slug)
+        return decoded.replace('-', ' ').trim().ifEmpty { null }
+    }
+
     /** True if this is a link to a video/photo post (not a profile, sound, or hashtag page). */
     fun isPostUrl(url: String): Boolean = isShortLink(url) || extractVideoId(url) != null
 }

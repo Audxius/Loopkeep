@@ -27,6 +27,7 @@ object NoteKeys {
     const val POSTED = "posted"
     const val SAVED = "saved"
     const val TAGS = "tags"
+    const val COLLECTIONS = "collections"
     const val STATUS = "status"
     const val TYPE = "type"
     const val DURATION = "duration"
@@ -47,6 +48,8 @@ data class VideoMeta(
     val posted: LocalDate? = null,
     val saved: LocalDate,
     val tags: List<String> = emptyList(),
+    /** TikTok collections (or the user's own groupings) this post belongs to. */
+    val collections: List<String> = emptyList(),
     val status: NoteStatus,
     val type: PostType = PostType.VIDEO,
     val durationSeconds: Int? = null,

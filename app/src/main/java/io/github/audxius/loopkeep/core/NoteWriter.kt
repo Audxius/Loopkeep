@@ -13,6 +13,7 @@ object NoteWriter {
         meta.posted?.let { fm.set(NoteKeys.POSTED, it.toString()) }
         fm.set(NoteKeys.SAVED, meta.saved.toString())
         fm.setList(NoteKeys.TAGS, meta.tags)
+        if (meta.collections.isNotEmpty()) fm.setList(NoteKeys.COLLECTIONS, meta.collections)
         applyMedia(doc, meta)
 
         val body = StringBuilder()
@@ -38,11 +39,21 @@ object NoteWriter {
         fillGap(fm, NoteKeys.POSTED, meta.posted?.toString())
         val tags = (fm.getList(NoteKeys.TAGS) + meta.tags).distinct()
         if (tags != fm.getList(NoteKeys.TAGS) || NoteKeys.TAGS !in fm) fm.setList(NoteKeys.TAGS, tags)
+        addCollections(fm, meta.collections)
         applyMedia(doc, meta)
         // Only rewrite the embeds if we now have something better to show.
         if (meta.status != NoteStatus.UNAVAILABLE) doc.setEmbeds(embedsFor(meta))
         if (doc.caption().isBlank() && meta.caption.isNotBlank()) doc.fillCaption(meta.caption)
         return doc.render()
+    }
+
+    /** Adds [collections] to a note's `collections` list, keeping existing ones. Returns true if it changed. */
+    fun addCollections(fm: Frontmatter, collections: List<String>): Boolean {
+        val current = fm.getList(NoteKeys.COLLECTIONS)
+        val merged = (current + collections.map { it.trim() }.filter { it.isNotEmpty() }).distinct()
+        if (merged == current) return false
+        fm.setList(NoteKeys.COLLECTIONS, merged)
+        return true
     }
 
     private fun fillGap(fm: Frontmatter, key: String, value: String?) {

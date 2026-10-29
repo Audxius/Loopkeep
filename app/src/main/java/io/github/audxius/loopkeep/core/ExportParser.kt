@@ -20,6 +20,8 @@ data class ExportEntry(
     val videoId: String?,
     val date: LocalDate?,
     val source: ExportSource,
+    /** Collection names, if the export says which collection the video is in. */
+    val collections: List<String> = emptyList(),
 )
 
 data class ExportScan(val entries: List<ExportEntry>) {
@@ -69,9 +71,13 @@ object ExportParser {
     }
 
     private fun better(a: ExportEntry, b: ExportEntry): ExportEntry {
-        if (a.source != b.source) return if (a.source.ordinal <= b.source.ordinal) a.withDate(b) else b.withDate(a)
+        val collections = (a.collections + b.collections).distinct()
+        if (a.source != b.source) {
+            val winner = if (a.source.ordinal <= b.source.ordinal) a.withDate(b) else b.withDate(a)
+            return winner.copy(collections = collections)
+        }
         val date = listOfNotNull(a.date, b.date).minOrNull()
-        return a.copy(date = date)
+        return a.copy(date = date, collections = collections)
     }
 
     private fun ExportEntry.withDate(other: ExportEntry) = if (date == null) copy(date = other.date) else this
@@ -96,13 +102,22 @@ object ExportParser {
 
     private fun parseJson(root: JsonElement, context: String): List<ExportEntry> {
         val out = mutableListOf<ExportEntry>()
-        walk(root, if (context.isBlank()) emptyList() else listOf(context), out)
+        walk(root, if (context.isBlank()) emptyList() else listOf(context), out, null)
         return out
     }
 
-    private fun walk(el: JsonElement, path: List<String>, out: MutableList<ExportEntry>) {
+    private val collectionNameKey = Regex("""^(collection[ _]?)?(name|title)$""", RegexOption.IGNORE_CASE)
+    private val genericKey = Regex("""list|items|videos|data|favou?rite|collection""", RegexOption.IGNORE_CASE)
+
+    private fun walk(el: JsonElement, path: List<String>, out: MutableList<ExportEntry>, collection: String?) {
+        val inCollections = path.any { it.contains("collection", ignoreCase = true) }
         when (el) {
             is JsonObject -> {
+                // {"CollectionName": "Recipes", "Videos": […]} inside a collections section.
+                val named = if (inCollections) el.entries.firstNotNullOfOrNull { (k, v) ->
+                    if (collectionNameKey.matches(k)) (v as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.ifEmpty { null } else null
+                } else null
+                val current = named ?: collection
                 val urls = el.entries.mapNotNull { (_, v) -> (v as? JsonPrimitive)?.takeIf { it.isString }?.content }
                     .flatMap { TikTokUrls.findUrls(it) }
                     .filter { TikTokUrls.isPostUrl(it) }
@@ -111,17 +126,22 @@ object ExportParser {
                         if (Regex("date|time|created|saved", RegexOption.IGNORE_CASE).containsMatchIn(k)) primitiveDate(v) else null
                     } ?: el.values.firstNotNullOfOrNull { primitiveDate(it) }
                     val source = classify(path)
-                    urls.forEach { out += ExportEntry(it, TikTokUrls.extractVideoId(it), date, source) }
+                    urls.forEach { out += ExportEntry(it, TikTokUrls.extractVideoId(it), date, source, listOfNotNull(current)) }
                 }
-                for ((k, v) in el) if (v !is JsonPrimitive) walk(v, path + k, out)
+                for ((k, v) in el) {
+                    if (v is JsonPrimitive) continue
+                    // {"Collections": {"Recipes": […]}}: a non-generic key under a collections section is the name.
+                    val childCollection = if (current == null && path.lastOrNull()?.contains("collection", true) == true && !genericKey.containsMatchIn(k)) k else current
+                    walk(v, path + k, out, childCollection)
+                }
             }
             is JsonArray -> el.forEach { item ->
                 if (item is JsonPrimitive && item.isString) {
                     // A bare list of links.
                     TikTokUrls.findUrls(item.content).filter { TikTokUrls.isPostUrl(it) }.forEach {
-                        out += ExportEntry(it, TikTokUrls.extractVideoId(it), null, classify(path))
+                        out += ExportEntry(it, TikTokUrls.extractVideoId(it), null, classify(path), listOfNotNull(collection))
                     }
-                } else walk(item, path, out)
+                } else walk(item, path, out, collection)
             }
             is JsonPrimitive -> Unit
         }
@@ -140,11 +160,14 @@ object ExportParser {
         val out = mutableListOf<ExportEntry>()
         val lines = text.lines()
         var heading = ""
+        var collection: String? = null
+        val collectionLine = Regex("""^collection(?: name)?\s*[:\-]\s*(.+)$""", RegexOption.IGNORE_CASE)
         var lastDate: LocalDate? = null
         var lastDateLine = -10
         for ((i, rawLine) in lines.withIndex()) {
             val line = rawLine.trim()
             if (line.isEmpty()) continue
+            collectionLine.find(line)?.let { collection = it.groupValues[1].trim(); continue }
             val urls = TikTokUrls.findUrls(line).filter { TikTokUrls.isPostUrl(it) }
             val lineDate = findDate(line)
             if (urls.isNotEmpty()) {
@@ -152,13 +175,14 @@ object ExportParser {
                 val date = lineDate ?: lastDate.takeIf { i - lastDateLine <= 3 }
                     ?: lines.getOrNull(i + 1)?.let { findDate(it) }
                 val source = classify(listOfNotNull(context.ifBlank { null }, heading.ifBlank { null }))
-                urls.forEach { out += ExportEntry(it, TikTokUrls.extractVideoId(it), date, source) }
+                urls.forEach { out += ExportEntry(it, TikTokUrls.extractVideoId(it), date, source, listOfNotNull(collection)) }
                 lastDate = null
             } else if (lineDate != null) {
                 lastDate = lineDate
                 lastDateLine = i
             } else if (line.length <= 80 && line.any { it.isLetter() } && !line.contains("://")) {
                 heading = line
+                collection = null
             }
         }
         return out

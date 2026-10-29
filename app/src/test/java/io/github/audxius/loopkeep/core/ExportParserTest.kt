@@ -109,6 +109,35 @@ class ExportParserTest {
         assertEquals(LocalDate.of(2024, 4, 1), out.first { it.videoId == "1" }.date)
     }
 
+    @Test fun collectionNamesFromNamedObjects() {
+        val json = """{"Activity":{"Favorite Collections":{"CollectionList":[
+            {"CollectionName":"Recipes","Videos":[{"Date":"2024-01-01","Link":"https://www.tiktokv.com/share/video/7300000000000000081/"}]},
+            {"CollectionName":"Travel","Videos":[{"Date":"2024-01-02","Link":"https://www.tiktokv.com/share/video/7300000000000000082/"},
+                                               {"Date":"2024-01-03","Link":"https://www.tiktokv.com/share/video/7300000000000000081/"}]}]},
+          "Favorite Videos":{"FavoriteVideoList":[{"Date":"2024-01-04","Link":"https://www.tiktokv.com/share/video/7300000000000000083/"}]}}}"""
+        val byId = ExportParser.parse(json.toByteArray()).entries.associateBy { it.videoId }
+        assertEquals(listOf("Recipes", "Travel"), byId["7300000000000000081"]!!.collections)
+        assertEquals(listOf("Travel"), byId["7300000000000000082"]!!.collections)
+        assertEquals(emptyList<String>(), byId["7300000000000000083"]!!.collections)
+        assertTrue(byId.values.all { it.source == ExportSource.SAVED })
+    }
+
+    @Test fun collectionNamesFromMapKeys() {
+        val json = """{"Collections":{"Pasta night":[{"Link":"https://www.tiktok.com/@a/video/7300000000000000091"}]}}"""
+        assertEquals(listOf("Pasta night"), ExportParser.parse(json.toByteArray()).entries.single().collections)
+    }
+
+    @Test fun collectionNamesInText() {
+        val txt = "Collection: Recipes\nDate: 2024-01-01\nLink: https://www.tiktokv.com/share/video/7300000000000000095/\n\nFavorite Videos\nDate: 2024-01-02\nLink: https://www.tiktokv.com/share/video/7300000000000000096/\n"
+        val byId = ExportParser.parse(txt.toByteArray(), "Favorite Videos.txt").entries.associateBy { it.videoId }
+        assertEquals(listOf("Recipes"), byId["7300000000000000095"]!!.collections)
+        assertEquals(emptyList<String>(), byId["7300000000000000096"]!!.collections)
+    }
+
+    @Test fun regularExportHasNoCollections() {
+        assertTrue(ExportParser.parse(resource("user_data.json")).entries.all { it.collections.isEmpty() })
+    }
+
     @Test fun classification() {
         assertEquals(ExportSource.LIKED, ExportParser.classify(listOf("Activity", "Like List", "ItemFavoriteList")))
         assertEquals(ExportSource.SAVED, ExportParser.classify(listOf("Activity", "Favorite Videos", "FavoriteVideoList")))
