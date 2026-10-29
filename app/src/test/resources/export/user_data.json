@@ -1,0 +1,27 @@
+{
+  "Activity": {
+    "Favorite Videos": {
+      "FavoriteVideoList": [
+        { "Date": "2024-03-14 18:22:05", "Link": "https://www.tiktokv.com/share/video/7300000000000000001/" },
+        { "Date": "2024-03-10 09:00:00", "Link": "https://www.tiktokv.com/share/video/7300000000000000002/" },
+        { "Date": "2024-02-01 09:00:00", "Link": "https://www.tiktok.com/@chef/video/7300000000000000003?lang=en" }
+      ]
+    },
+    "Like List": {
+      "ItemFavoriteList": [
+        { "date": "2024-03-11 10:00:00", "link": "https://www.tiktokv.com/share/video/7300000000000000002/" },
+        { "date": "2024-03-12 10:00:00", "link": "https://www.tiktokv.com/share/video/7300000000000000004/" },
+        { "date": "2024-03-13 10:00:00", "link": "https://www.tiktokv.com/share/video/7300000000000000005/" }
+      ]
+    },
+    "Video Browsing History": {
+      "VideoList": [
+        { "Date": "2024-03-13 10:00:00", "Link": "https://www.tiktokv.com/share/video/7300000000000000099/" }
+      ]
+    },
+    "Favorite Sounds": {
+      "FavoriteSoundList": [ { "Date": "2024-01-01 00:00:00", "Link": "https://www.tiktok.com/music/original-sound-123" } ]
+    }
+  },
+  "Profile": { "Profile Information": { "ProfileMap": { "userName": "me" } } }
+}
