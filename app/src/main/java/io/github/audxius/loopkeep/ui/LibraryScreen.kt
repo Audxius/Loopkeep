@@ -514,11 +514,12 @@ private fun EmptyLibrary(onImport: () -> Unit, onLinks: (String) -> Unit) {
 fun ImportDialog(vm: AppViewModel) {
     val pending by vm.pendingImport.collectAsStateWithLifecycle()
     val p = pending ?: return
-    var includeLiked by remember(p) { mutableStateOf(false) }
-    var includeOwn by remember(p) { mutableStateOf(true) }
     val own = p.scan.count(ExportSource.OWN)
     val saved = p.scan.count(ExportSource.SAVED)
     val liked = p.scan.count(ExportSource.LIKED)
+    // Never leave the dialog with nothing selectable: if no favourites were found, offer the likes.
+    var includeLiked by remember(p) { mutableStateOf(saved == 0 && own == 0 && liked > 0) }
+    var includeOwn by remember(p) { mutableStateOf(true) }
     val other = p.scan.count(ExportSource.OTHER)
     val withCollections = p.scan.entries.count { it.collections.isNotEmpty() }
     AlertDialog(
@@ -540,6 +541,9 @@ fun ImportDialog(vm: AppViewModel) {
                         Checkbox(includeOwn, { includeOwn = it }, colors = CheckboxDefaults.colors(checkedColor = Brand.Coral))
                         Text("Save my own $own posts, including \"Only me\" ones, with their original dates")
                     }
+                }
+                if (saved == 0 && liked > 0) {
+                    Text("No favourites were found in this export, so your liked videos are selected instead. Untick them if you don't want them.", color = Brand.Gold, style = MaterialTheme.typography.bodySmall)
                 }
                 if (withCollections > 0) Text("$withCollections are in collections; they'll be grouped the same way.", color = Brand.TextSecondary)
                 if (liked > 0) {
