@@ -22,7 +22,7 @@ Loopkeep downloads the videos you saved on TikTok to your phone, together with t
 - **Your own feed.** Full-screen vertical swiping, loop, tap to pause, seek, mute, photo carousels with sound. No account, no algorithm, no tracking, no infinite scroll: only what you saved, newest, oldest or shuffled.
 - **Everything findable.** Full-text search over captions, tags, notes and creators, plus filters by collection, status, tag and creator.
 - **Straight from the creator.** The creator's own comments and replies under each post are saved with it, and so is the link in their bio. Tap the creator to open their TikTok profile.
-- **Organised your way.** The home screen is your collections. Anything not in one waits in **Uncategorized** (e.g. links friends send you), ready to sort with a long-press. Your own tags and notes are written back into the Markdown too.
+- **Organised your way.** The home screen is your collections. Anything not in one waits in **Uncategorized** (e.g. links friends send you), ready to sort with a long-press. Your own posts have their own **My videos** tile. Your own tags and notes are written back into the Markdown too.
 - **Honest about gaps.** Counters for saved, partial, unavailable and failed posts. If a video can't be downloaded, its caption and cover are still kept and you can retry later.
 
 **The files are the product, the app is a viewer.** If Loopkeep disappears, the folder is still a complete, readable archive.
