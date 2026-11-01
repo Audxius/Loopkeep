@@ -43,12 +43,48 @@
     try { return JSON.parse(el ? el.textContent : '{}').__DEFAULT_SCOPE__ || {}; } catch (e) { return {}; }
   }
 
-  // The video file TikTok's own player would play. Slideshows have none.
-  function videoUrl(item) {
-    if (item.imagePost) return '';
+  // Every file link TikTok gives for the post (player, download, each quality), best guess first. Slideshows have none.
+  function videoUrls(item) {
+    if (item.imagePost) return [];
     const v = item.video || {};
-    const fromList = list => (list && list.length && (list[0].PlayAddr || {}).UrlList || [])[0];
-    return v.playAddr || fromList(v.bitrateInfo) || v.downloadAddr || '';
+    const fromBitrates = (v.bitrateInfo || []).flatMap(b => ((b && b.PlayAddr) || {}).UrlList || []);
+    return [v.playAddr, v.downloadAddr, ...fromBitrates].filter((u, i, all) => typeof u === 'string' && u.startsWith('https://') && all.indexOf(u) === i);
+  }
+
+  function base64(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  // Fetches the file with the page's own session (falling back to no credentials if the CDN's CORS
+  // rules refuse them) and streams it to the app. Returns 'ok' or throws with the reason.
+  async function grab(p) {
+    let r = null, why = '';
+    attempts:
+    for (const url of p.urls) {
+      for (const credentials of ['include', 'omit']) {
+        try {
+          r = await fetch(url, { credentials, referrer: location.origin + '/' });
+          if (r.ok) break attempts;
+          why = 'HTTP ' + r.status;
+        } catch (e) {
+          why = String(e && e.message || e);
+        }
+        r = null;
+      }
+    }
+    if (!r) throw new Error(why || 'no answer');
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (bytes.length < 10000) throw new Error('only ' + bytes.length + ' bytes');
+    bridge.fileStart(p.id);
+    const chunk = 768 * 1024;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      if (!bridge.fileChunk(p.id, base64(bytes.subarray(i, i + chunk)))) throw new Error('the app could not store it');
+    }
+    const err = bridge.fileEnd(p.id);
+    if (err) throw new Error(err);
+    return 'ok';
   }
 
   try {
@@ -76,11 +112,13 @@
         const r = await get('/api/post/item_list/', { secUid, count: '35', cursor, coverFormat: '2' });
         for (const item of r.itemList || []) {
           if (!item || !item.id) continue;
+          const urls = videoUrls(item);
           own.push({
             id: String(item.id),
             caption: item.desc || '',
             createTime: Number(item.createTime) || 0,
-            videoUrl: videoUrl(item),
+            videoUrl: urls[0] || '',
+            urls,
             private: !!item.privateItem,
           });
         }
@@ -92,6 +130,19 @@
     } catch (e) {
       ownError = String(e && e.message || e);
     }
+
+    // Download your own videos the app doesn't have yet right here, inside your signed-in TikTok page,
+    // so TikTok sees exactly the browser it handed the file link to. Each file is passed to the app
+    // in base64 chunks. Whatever fails here is reported per video and still goes through the queue.
+    const needed = own.filter(p => p.videoUrl && bridge.needs(p.id));
+    let got = 0;
+    for (const [i, p] of needed.entries()) {
+      bridge.progress('Downloading your videos: ' + (i + 1) + ' / ' + needed.length);
+      p.file = await grab(p).catch(e => String(e && e.message || e));
+      if (p.file === 'ok') got++;
+      await sleep(300);
+    }
+    if (needed.length) bridge.progress('Downloaded ' + got + ' of ' + needed.length + ' of your videos');
 
     const collections = [];
     for (let cursor = '0', page = 0; page < 50; page++) {

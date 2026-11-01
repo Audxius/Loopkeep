@@ -97,8 +97,10 @@ class Processor(
             // 2. yt-dlp.
             var ytError: String? = null
             val own = item.source == QueueSource.PROFILE || item.source == QueueSource.EXPORT_OWN
-            val cookies = if (own) TikTokSession.writeCookiesFile(File(context.cacheDir, "dl/cookies-$id.txt")) else null
-            val yt = try {
+            // A file already downloaded inside the signed-in TikTok page: nothing left to fetch.
+            val local = item.mediaUrl?.startsWith("file:") == true
+            val cookies = if (own && !local) TikTokSession.writeCookiesFile(File(context.cacheDir, "dl/cookies-$id.txt")) else null
+            val yt = if (local) null else try {
                 download(canonical, tmp, "item-${item.id}", cookies)
             } catch (e: CancellationException) {
                 throw e
@@ -197,6 +199,8 @@ class Processor(
                 creatorComments = comments,
             )
             val noteName = writeNote(storage, meta, existing?.noteDocId, noteNames)
+            // The page-downloaded file is in the folder now.
+            if (local) runCatching { File(java.net.URI(item.mediaUrl!!)).delete() }
             val message = when (status) {
                 NoteStatus.TEXT_ONLY -> if (own) {
                     // Spell out why, so a failing private download can be diagnosed from the queue.
@@ -258,6 +262,12 @@ class Processor(
     /** Downloads a direct video file link (from the export) and checks it really is a video. */
     private fun downloadDirect(url: String, target: File): Result<File> = runCatching {
         target.parentFile?.mkdirs()
+        if (url.startsWith("file:")) {
+            val source = File(java.net.URI(url))
+            if (!source.isFile) throw IOException("The downloaded file is gone; sync from TikTok again")
+            source.copyTo(target, overwrite = true)
+            return@runCatching target
+        }
         // TikTok's file links for private posts only answer with the owner's session: the cookies the
         // TikTok sign-in screen left in the WebView cookie store, sent only to hosts they belong to.
         val cookies = TikTokSession.cookieHeader(url)

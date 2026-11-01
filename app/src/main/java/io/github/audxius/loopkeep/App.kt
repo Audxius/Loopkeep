@@ -35,6 +35,7 @@ class AppGraph(private val app: Application) {
     val processor = Processor(app, db, indexer, ytDlp)
     val queue = QueueRepository(app, db)
     val localImport = LocalVideoImport(app, indexer)
+    val ownVideos = io.github.audxius.loopkeep.pipeline.OwnVideoFiles(app)
 
     private var cachedStorage: VaultStorage? = null
 

@@ -10,8 +10,14 @@ import kotlinx.serialization.json.longOrNull
 /** One of the user's TikTok collections and the post IDs in it, as read by `assets/collection_sync.js`. */
 data class SyncedCollection(val name: String, val ids: List<String>)
 
-/** One of the signed-in user's own posts. [videoUrl] is TikTok's (expiring) file link; blank for slideshows. */
-data class SyncedOwnPost(val id: String, val caption: String, val createTime: Long, val videoUrl: String?, val private: Boolean)
+/**
+ * One of the signed-in user's own posts. [videoUrl] is TikTok's (expiring) file link; blank for slideshows.
+ * [fileError]: why the in-page download failed (null if it worked or wasn't tried).
+ */
+data class SyncedOwnPost(
+    val id: String, val caption: String, val createTime: Long, val videoUrl: String?, val private: Boolean,
+    val fileError: String? = null,
+)
 
 data class SyncResult(
     val handle: String?,
@@ -48,6 +54,7 @@ object CollectionSync {
                     createTime = (o["createTime"] as? JsonPrimitive)?.longOrNull ?: 0,
                     videoUrl = o.string("videoUrl")?.trim()?.takeIf { it.startsWith("https://") },
                     private = (o["private"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                    fileError = o.string("file")?.takeIf { it != "ok" }?.take(200),
                 )
             }.distinctBy { it.id },
             ownError = obj.string("ownError")?.ifBlank { null },

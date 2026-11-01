@@ -308,10 +308,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
         if (result.own.isNotEmpty()) {
             val replaced = replaceExportPlaceholders(result.own)
-            val r = graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle)
+            graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle, graph.ownVideos::ready)
             val private = result.own.count { it.private }
-            parts += "${result.own.size} of your videos, $private of them Only me (${r.added} to download" +
-                (if (replaced > 0) ", $replaced export copies replaced" else "") + ")"
+            val downloaded = result.own.count { graph.ownVideos.ready(it.id) != null }
+            val failed = result.own.filter { it.fileError != null }
+            parts += "${result.own.size} of your videos, $private of them Only me: $downloaded downloaded, saving now" +
+                (if (replaced > 0) ", $replaced export copies replaced" else "") +
+                (if (failed.isNotEmpty()) ". ${failed.size} couldn't be downloaded (${failed.first().fileError})" else "")
         } else if (result.ownError != null) {
             parts += "couldn't list your videos (${result.ownError})"
         }
@@ -365,6 +368,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         return replaced
     }
+
+    /** Asked by the sync page for each of your posts: download it only if it isn't fully saved yet. Called off the main thread. */
+    fun needsOwnVideo(id: String): Boolean = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+        videos.byTiktokId(id)?.status != io.github.audxius.loopkeep.core.NoteStatus.FULL.value
+    }
+
+    val ownVideoFiles get() = graph.ownVideos
 
     fun createCollection(name: String) = rememberCollections(listOf(name))
 

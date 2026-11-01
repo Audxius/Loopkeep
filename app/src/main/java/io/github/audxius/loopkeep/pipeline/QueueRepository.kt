@@ -91,7 +91,7 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
      * link, so private ones can be downloaded too. Posts that were only partly saved (or failed)
      * are fetched again with the fresh link; fully saved ones are left alone.
      */
-    suspend fun enqueueProfile(posts: List<SyncedOwnPost>, handle: String?): EnqueueResult =
+    suspend fun enqueueProfile(posts: List<SyncedOwnPost>, handle: String?, localFile: (String) -> java.io.File? = { null }): EnqueueResult =
         enqueue(
             posts.sortedBy { it.createTime }.map { p ->
                 val note = db.videos().byTiktokId(p.id)
@@ -99,7 +99,9 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
                     TikTokUrls.canonicalUrl(p.id, handle), p.id, QueueSource.PROFILE,
                     p.createTime.takeIf { it > 0 }?.let { Instant.ofEpochSecond(it).atZone(ZoneId.systemDefault()).toLocalDate().toString() },
                     force = note != null && note.status != NoteStatus.FULL.value,
-                    mediaUrl = p.videoUrl, caption = p.caption.ifBlank { null }, authorHandle = handle,
+                    // A file already downloaded in the signed-in page beats TikTok's link, which needs the session.
+                    mediaUrl = localFile(p.id)?.let { android.net.Uri.fromFile(it).toString() } ?: p.videoUrl,
+                    caption = p.caption.ifBlank { null }, authorHandle = handle,
                 )
             },
         )
@@ -142,7 +144,17 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
                         added++
                     }
                     Decision.SKIP_IN_QUEUE -> {
-                        if (r.collections.isNotEmpty()) {
+                        if (r.source == QueueSource.PROFILE && r.mediaUrl != null && existing!!.state == QueueState.PENDING) {
+                            // Waiting on a retry: take the fresh link (or downloaded file) and run it now.
+                            db.queue().update(
+                                existing.copy(
+                                    source = QueueSource.PROFILE, mediaUrl = r.mediaUrl, attempts = 0, nextAttemptAt = 0, lastError = null,
+                                    caption = existing.caption ?: r.caption, authorHandle = existing.authorHandle ?: r.authorHandle,
+                                    savedDate = existing.savedDate ?: r.date, updatedAt = now,
+                                ),
+                            )
+                            added++
+                        } else if (r.collections.isNotEmpty()) {
                             db.queue().update(existing!!.copy(collections = union(existing.collections, r.collections), updatedAt = now))
                         }
                         queued++

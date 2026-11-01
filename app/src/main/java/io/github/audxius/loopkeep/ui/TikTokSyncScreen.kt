@@ -144,6 +144,12 @@ fun TikTokSyncScreen(vm: AppViewModel) {
                             if (url.startsWith("https://www.tiktok.com/")) main.post { qrLink = url }
                         }
 
+                        // Your own videos, downloaded by the page with your session (see collection_sync.js).
+                        @JavascriptInterface fun needs(id: String): Boolean = vm.needsOwnVideo(id)
+                        @JavascriptInterface fun fileStart(id: String): Boolean = vm.ownVideoFiles.start(id)
+                        @JavascriptInterface fun fileChunk(id: String, base64: String): Boolean = vm.ownVideoFiles.append(id, base64)
+                        @JavascriptInterface fun fileEnd(id: String): String = vm.ownVideoFiles.finish(id).orEmpty()
+
                         @JavascriptInterface fun progress(text: String) {
                             main.post { status = text }
                         }
