@@ -59,6 +59,19 @@ object TikTokUrls {
         return decoded.replace('-', ' ').trim().ifEmpty { null }
     }
 
+    /**
+     * Upload date encoded in a TikTok post ID: the top 32 bits are the Unix time the post was
+     * created (checked against TikTok's own dates, 2026-10-31). Works for private and deleted
+     * posts too, since it needs nothing but the ID.
+     */
+    fun postedFromId(id: String): java.time.LocalDate? {
+        val n = id.toULongOrNull() ?: return null
+        val seconds = (n shr 32).toLong()
+        // TikTok (2016+) posts only; older musical.ly-era IDs don't follow this scheme.
+        if (seconds < 1_451_606_400L || seconds > System.currentTimeMillis() / 1000 + 86_400) return null
+        return java.time.Instant.ofEpochSecond(seconds).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+    }
+
     fun profileUrl(handle: String): String = "https://www.tiktok.com/@${handle.removePrefix("@")}"
 
     /** True if this is a link to a video/photo post (not a profile, sound, or hashtag page). */

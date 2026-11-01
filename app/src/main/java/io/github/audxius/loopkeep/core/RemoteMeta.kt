@@ -150,6 +150,9 @@ data class PageInfo(
     val authorLink: String? = null,
 ) {
     val isAvailable: Boolean get() = statusCode == null || statusCode == 0
+
+    /** 10216: private post ("Only me"/friends), 10222: private account. Needs the owner's login to fetch. */
+    val isPrivate: Boolean get() = statusCode == 10216 || statusCode == 10222
 }
 
 /**
