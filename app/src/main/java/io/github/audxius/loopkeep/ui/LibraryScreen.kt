@@ -226,9 +226,10 @@ fun LibraryScreen(vm: AppViewModel) {
                             if (empty != null) {
                                 Text("Nothing in $empty yet", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "Go back to all posts, long-press a post to start selecting, pick the ones that belong here, then tap Collection.",
+                                    "Sync from TikTok to fill your collections automatically, or long-press posts in All posts to file them yourself.",
                                     color = Brand.TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp),
                                 )
+                                GradientButton("Sync from TikTok", onClick = { vm.open(Screen.TikTokSync) }, icon = Icons.Outlined.CollectionsBookmark, modifier = Modifier.padding(top = 14.dp))
                                 Row {
                                     TextButton(onClick = vm::clearFilters) { Text("All posts", color = Brand.Coral) }
                                     TextButton(onClick = { vm.forgetCollection(empty); vm.clearFilters() }) { Text("Remove collection", color = Brand.TextSecondary) }
@@ -439,7 +440,10 @@ private fun CollectionsShelf(vm: AppViewModel, items: List<VideoEntity>) {
     val collections by vm.collections.collectAsStateWithLifecycle()
     if (collections.isEmpty()) return
     Column(Modifier.padding(bottom = 14.dp)) {
-        Text("Collections", style = MaterialTheme.typography.titleMedium, color = Brand.TextPrimary, modifier = Modifier.padding(bottom = 10.dp))
+        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Collections", style = MaterialTheme.typography.titleMedium, color = Brand.TextPrimary, modifier = Modifier.weight(1f))
+            TextButton(onClick = { vm.open(Screen.TikTokSync) }) { Text("Sync from TikTok", color = Brand.Coral) }
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(collections, key = { it.first }) { (name, n) ->
                 val cover = items.firstOrNull { name in it.collectionList && it.coverUri != null }?.coverUri
@@ -670,8 +674,8 @@ fun ImportDialog(vm: AppViewModel) {
                 val names = p.scan.collectionNames.size
                 if (names > 0 && withCollections == 0) {
                     Text(
-                        "TikTok's export names your $names collections but doesn't say which videos are in them. They're added empty: " +
-                            "long-press posts in the library to select them, then tap Collection.",
+                        "TikTok's export names your $names collections but doesn't say which videos are in them. " +
+                            "After importing, use Settings → Sync collections from TikTok to sort them automatically.",
                         color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall,
                     )
                 }

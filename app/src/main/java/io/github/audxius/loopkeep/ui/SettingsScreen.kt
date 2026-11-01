@@ -134,10 +134,10 @@ fun SettingsScreen(vm: AppViewModel) {
                     ) { Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary) }
                     RowDivider()
                     SettingRow(
-                        Icons.Outlined.CollectionsBookmark, "Import a collection",
-                        "In TikTok, make the collection public and share its link to Loopkeep. Posts are filed into that collection.",
-                        iconTint = Brand.Peach,
-                    )
+                        Icons.Outlined.CollectionsBookmark, "Sync collections from TikTok",
+                        "Sign in to TikTok once, and Loopkeep sorts your saved videos into your collections and downloads any it's missing. TikTok's export only has the collection names.",
+                        onClick = { vm.open(Screen.TikTokSync) }, iconTint = Brand.Peach,
+                    ) { Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary) }
                     RowDivider()
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Row(

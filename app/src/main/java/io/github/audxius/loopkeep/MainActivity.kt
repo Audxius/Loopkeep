@@ -24,6 +24,7 @@ import io.github.audxius.loopkeep.ui.QueueScreen
 import io.github.audxius.loopkeep.ui.Screen
 import io.github.audxius.loopkeep.ui.SettingsScreen
 import io.github.audxius.loopkeep.ui.SetupScreen
+import io.github.audxius.loopkeep.ui.TikTokSyncScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -77,5 +78,6 @@ private fun Root(vm: AppViewModel) {
         is Screen.Feed -> FeedScreen(vm, s.startTiktokId)
         Screen.Queue -> QueueScreen(vm)
         Screen.Settings -> SettingsScreen(vm)
+        Screen.TikTokSync -> TikTokSyncScreen(vm)
     }
 }

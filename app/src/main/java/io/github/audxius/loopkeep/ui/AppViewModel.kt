@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.audxius.loopkeep.App
+import io.github.audxius.loopkeep.core.CollectionSync
 import io.github.audxius.loopkeep.core.ExportParser
 import io.github.audxius.loopkeep.core.ExportScan
 import io.github.audxius.loopkeep.core.NoteDocument
@@ -37,6 +38,7 @@ sealed interface Screen {
     data class Feed(val startTiktokId: String?) : Screen
     data object Queue : Screen
     data object Settings : Screen
+    data object TikTokSync : Screen
 }
 
 data class StorageInfo(val folder: String, val notes: Int, val mediaFiles: Int, val bytes: Long)
@@ -265,6 +267,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (clean.isEmpty()) return
         graph.settings.knownCollections = (knownCollections.value + clean).distinct()
         knownCollections.value = graph.settings.knownCollections
+    }
+
+    /** Files posts into the collections read from TikTok; saved posts get the name, others are downloaded. */
+    fun applyTikTokCollections(json: String) = viewModelScope.launch {
+        val synced = CollectionSync.parse(json)
+        if (synced.isEmpty()) {
+            _message.value = "TikTok listed no collections for this account"
+            return@launch
+        }
+        rememberCollections(synced.map { it.name })
+        var filed = 0
+        var downloads = 0
+        var already = 0
+        for (c in synced) {
+            if (c.ids.isEmpty()) continue
+            val r = graph.queue.enqueueCollection(c.ids.map { TikTokUrls.canonicalUrl(it) }, c.name)
+            filed += r.collectionUpdates
+            downloads += r.added
+            already += r.alreadySaved
+        }
+        val posts = synced.sumOf { it.ids.size }
+        _message.value = "${synced.size} collections, $posts posts: $filed being filed, $downloads new to download" +
+            if (already > 0) ", $already already there" else ""
     }
 
     fun createCollection(name: String) = rememberCollections(listOf(name))
