@@ -1,6 +1,10 @@
 package io.github.audxius.loopkeep.ui
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
@@ -20,6 +24,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,8 +39,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 /**
  * Reads the user's TikTok collections. TikTok only shows which posts are in a (private) collection
@@ -44,7 +54,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun TikTokSyncScreen(vm: AppViewModel) {
-    var status by remember { mutableStateOf("Sign in to TikTok. Use your username, email or phone; Google and Apple sign-in don't work inside apps.") }
+    var status by remember { mutableStateOf("Sign in to TikTok. Google won't sign in inside other apps, so a Google account signs in with the QR code and your TikTok app.") }
+    // The link inside the QR code TikTok is showing; the signed-in TikTok app confirms it.
+    var qrLink by remember { mutableStateOf<String?>(null) }
+    var qrHelp by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     var running by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var finished by remember { mutableStateOf(false) }
@@ -79,7 +93,25 @@ fun TikTokSyncScreen(vm: AppViewModel) {
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             if (running) LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Brand.Coral, trackColor = Brand.Surface3)
-            Row {
+            if (!signedIn() && !running) {
+                if (qrLink == null) {
+                    GradientButton(
+                        "Signed up with Google? Use QR code", onClick = { webView?.loadUrl(LOGIN_QR) },
+                        icon = Icons.Default.QrCode, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    )
+                } else {
+                    GradientButton(
+                        "Confirm in TikTok app", onClick = { if (!openInTikTok(context, qrLink!!)) qrHelp = true },
+                        icon = Icons.AutoMirrored.Filled.OpenInNew, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    )
+                    Text(
+                        if (qrHelp) "Couldn't open TikTok directly. Take a screenshot of the code below, then in TikTok: Search → scan icon → pick the screenshot from your photos → Confirm. Then come back here."
+                        else "Opens TikTok, where you confirm the login. Then come back here; the sync starts by itself. Didn't work? Screenshot the code and scan it from TikTok's scanner (Search → scan icon → photos).",
+                        color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            if (qrLink == null || running || failed) Row {
                 Text(status, color = if (failed) Brand.Rose else Brand.TextSecondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f).padding(top = 6.dp))
                 if (failed) {
                     Spacer(Modifier.width(8.dp))
@@ -103,7 +135,15 @@ fun TikTokSyncScreen(vm: AppViewModel) {
                     // The desktop site: it has the web API the script uses and keeps login inside the page.
                     settings.userAgentString = DESKTOP_UA
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                        val hook = context.assets.open("qr_hook.js").bufferedReader().use { it.readText() }
+                        WebViewCompat.addDocumentStartJavaScript(this, hook, setOf("https://www.tiktok.com"))
+                    }
                     addJavascriptInterface(object {
+                        @JavascriptInterface fun qr(url: String) {
+                            if (url.startsWith("https://www.tiktok.com/")) main.post { qrLink = url }
+                        }
+
                         @JavascriptInterface fun progress(text: String) {
                             main.post { status = text }
                         }
@@ -149,4 +189,31 @@ fun TikTokSyncScreen(vm: AppViewModel) {
 
 private const val HOME = "https://www.tiktok.com/"
 private const val LOGIN = "https://www.tiktok.com/login"
+private const val LOGIN_QR = "https://www.tiktok.com/login/qrcode"
 private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
+/**
+ * Hands the QR login link to the TikTok app, which opens it in its own (signed-in) browser where the
+ * user confirms the login: first through TikTok's webview deep link, then as a plain link restricted
+ * to the TikTok app. Returns false if TikTok isn't installed or handles neither.
+ */
+private fun openInTikTok(context: Context, link: String): Boolean {
+    val encoded = Uri.encode(link)
+    val attempts = TIKTOK_PACKAGES.flatMap { pkg ->
+        listOf(
+            Intent(Intent.ACTION_VIEW, Uri.parse("snssdk1233://webview?url=$encoded")).setPackage(pkg),
+            Intent(Intent.ACTION_VIEW, Uri.parse(link)).setPackage(pkg),
+        )
+    }
+    for (intent in attempts) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return true
+        } catch (_: ActivityNotFoundException) {
+        }
+    }
+    return false
+}
+
+/** TikTok's package names (global, and the regional "trill" build). */
+private val TIKTOK_PACKAGES = listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill")
