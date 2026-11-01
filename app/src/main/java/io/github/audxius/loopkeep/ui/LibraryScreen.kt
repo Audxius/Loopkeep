@@ -1,6 +1,7 @@
 package io.github.audxius.loopkeep.ui
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -18,12 +19,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,9 +35,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
@@ -48,6 +53,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwipeVertical
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -169,10 +175,18 @@ fun LibraryScreen(vm: AppViewModel) {
     val filter by vm.filter.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    var deleting by remember { mutableStateOf<VideoEntity?>(null) }
+    // Long-press starts selecting; then taps add or remove posts. Kept by ID so the list can change underneath.
+    var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+    val selecting = selectedIds.isNotEmpty()
+    val selected = items.orEmpty().filter { it.tiktokId in selectedIds }
+    var deleting by remember { mutableStateOf<List<VideoEntity>?>(null) }
+    var filing by remember { mutableStateOf(false) }
     MessageEffect(vm, snackbar)
     ImportDialog(vm)
-    deleting?.let { d -> DeleteDialog(d, onConfirm = { vm.delete(d) }, onDismiss = { deleting = null }) }
+    BackHandler(enabled = selecting) { selectedIds = emptySet() }
+    deleting?.let { d -> DeleteDialog(d, onConfirm = { vm.delete(d); selectedIds = emptySet() }, onDismiss = { deleting = null }) }
+    if (filing) CollectionPicker(vm, selected, onDone = { filing = false; selectedIds = emptySet() }, onDismiss = { filing = false })
+    fun toggle(id: String) { selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id }
 
     val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) vm.readExport(uri)
@@ -207,19 +221,43 @@ fun LibraryScreen(vm: AppViewModel) {
                 item(span = { GridItemSpan(maxLineSpan) }) { ResultsLabel(vm, list?.size ?: 0) }
                 if (list != null && list.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Nothing matches", color = Brand.TextSecondary)
-                            TextButton(onClick = vm::clearFilters) { Text("Clear filters", color = Brand.Coral) }
+                        Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            val empty = filter.collection?.takeIf { filter.search.isBlank() && filter.status == null && filter.tag == null && filter.authorHandle == null }
+                            if (empty != null) {
+                                Text("Nothing in $empty yet", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Go back to all posts, long-press a post to start selecting, pick the ones that belong here, then tap Collection.",
+                                    color = Brand.TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp),
+                                )
+                                Row {
+                                    TextButton(onClick = vm::clearFilters) { Text("All posts", color = Brand.Coral) }
+                                    TextButton(onClick = { vm.forgetCollection(empty); vm.clearFilters() }) { Text("Remove collection", color = Brand.TextSecondary) }
+                                }
+                            } else {
+                                Text("Nothing matches", color = Brand.TextSecondary)
+                                TextButton(onClick = vm::clearFilters) { Text("Clear filters", color = Brand.Coral) }
+                            }
                         }
                     }
                 }
                 items(list.orEmpty(), key = { it.tiktokId }) { item ->
-                    GridCell(item, onLongClick = { deleting = item }) { vm.open(Screen.Feed(item.tiktokId)) }
+                    GridCell(item, selected = if (selecting) item.tiktokId in selectedIds else null, onLongClick = { toggle(item.tiktokId) }) {
+                        if (selecting) toggle(item.tiktokId) else vm.open(Screen.Feed(item.tiktokId))
+                    }
                 }
             }
         }
 
-        if (!items.isNullOrEmpty()) {
+        if (selecting) {
+            SelectionBar(
+                count = selected.size,
+                onClose = { selectedIds = emptySet() },
+                onSelectAll = { selectedIds = items.orEmpty().map { it.tiktokId }.toSet() },
+                onCollection = { filing = true },
+                onDelete = { deleting = selected },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        } else if (!items.isNullOrEmpty()) {
             GradientButton(
                 "Play", onClick = { vm.open(Screen.Feed(null)) }, icon = Icons.Default.PlayArrow,
                 modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp),
@@ -413,7 +451,7 @@ private fun CollectionsShelf(vm: AppViewModel, items: List<VideoEntity>) {
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000)), startY = 120f)))
                     Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
                         Text(name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("$n ${if (n == 1) "post" else "posts"}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        Text(if (n == 0) "Empty" else "$n ${if (n == 1) "post" else "posts"}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
                     }
                 }
             }
@@ -438,9 +476,11 @@ private fun ResultsLabel(vm: AppViewModel, count: Int) {
 }
 
 @Composable
-private fun GridCell(item: VideoEntity, onLongClick: () -> Unit, onClick: () -> Unit) {
+/** [selected] is null outside selection mode. */
+private fun GridCell(item: VideoEntity, selected: Boolean?, onLongClick: () -> Unit, onClick: () -> Unit) {
     Box(
         Modifier.aspectRatio(9f / 16f).clip(RoundedCornerShape(12.dp)).background(Brand.Surface2)
+            .then(if (selected == true) Modifier.border(3.dp, Brand.Coral, RoundedCornerShape(12.dp)) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         if (item.coverUri != null) {
@@ -472,7 +512,88 @@ private fun GridCell(item: VideoEntity, onLongClick: () -> Unit, onClick: () -> 
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x88000000)).padding(3.dp).size(14.dp),
                 )
         }
+        if (selected != null) {
+            if (selected) Box(Modifier.fillMaxSize().background(Brand.Coral.copy(alpha = 0.18f)))
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp).clip(CircleShape)
+                    .background(if (selected) Brand.Coral else Color(0x66000000))
+                    .border(1.5.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) Icon(Icons.Default.Check, "Selected", tint = Color.White, modifier = Modifier.size(15.dp))
+            }
+        }
     }
+}
+
+@Composable
+private fun SelectionBar(
+    count: Int,
+    onClose: () -> Unit,
+    onSelectAll: () -> Unit,
+    onCollection: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.navigationBarsPadding().padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(22.dp))
+            .background(Brand.Surface3).padding(horizontal = 6.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Stop selecting", tint = Brand.TextPrimary) }
+        Column(Modifier.weight(1f)) {
+            Text("$count selected", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text("Select all", color = Brand.Coral, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onSelectAll))
+        }
+        IconButton(onClick = onDelete) { Icon(Icons.Outlined.DeleteOutline, "Delete", tint = Brand.TextSecondary) }
+        GradientButton("Collection", onClick = onCollection, icon = Icons.Outlined.CollectionsBookmark)
+    }
+}
+
+/** Files the selected posts into a collection (or takes them out of one). */
+@Composable
+private fun CollectionPicker(vm: AppViewModel, items: List<VideoEntity>, onDone: () -> Unit, onDismiss: () -> Unit) {
+    val collections by vm.collections.collectAsStateWithLifecycle()
+    var newName by rememberSaveable { mutableStateOf("") }
+    val n = items.size
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Brand.Surface2,
+        title = { Text("Add $n ${if (n == 1) "post" else "posts"} to…") },
+        text = {
+            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(CircleShape).background(Brand.Surface3).padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlainTextField(newName, { newName = it }, "New collection", Modifier.weight(1f), contentPadding = PaddingValues(vertical = 12.dp))
+                    TextButton(onClick = { vm.fileInCollection(items, newName, add = true); onDone() }, enabled = newName.isNotBlank()) {
+                        Text("Add", color = if (newName.isNotBlank()) Brand.Coral else Brand.TextTertiary)
+                    }
+                }
+                collections.forEach { (name, count) ->
+                    // All selected posts already in it: tapping takes them out again.
+                    val allIn = items.isNotEmpty() && items.all { name in it.collectionList }
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .clickable { vm.fileInCollection(items, name, add = !allIn); onDone() }
+                            .padding(horizontal = 8.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (allIn) Icons.Default.Check else Icons.Outlined.CollectionsBookmark, null,
+                            tint = if (allIn) Brand.Coral else Brand.TextSecondary, modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(name, color = Brand.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(if (allIn) "Remove" else if (count == 0) "empty" else "$count", color = Brand.TextTertiary, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Brand.TextSecondary) } },
+    )
 }
 
 @Composable
@@ -546,6 +667,14 @@ fun ImportDialog(vm: AppViewModel) {
                     Text("No favourites were found in this export, so your liked videos are selected instead. Untick them if you don't want them.", color = Brand.Gold, style = MaterialTheme.typography.bodySmall)
                 }
                 if (withCollections > 0) Text("$withCollections are in collections; they'll be grouped the same way.", color = Brand.TextSecondary)
+                val names = p.scan.collectionNames.size
+                if (names > 0 && withCollections == 0) {
+                    Text(
+                        "TikTok's export names your $names collections but doesn't say which videos are in them. They're added empty: " +
+                            "long-press posts in the library to select them, then tap Collection.",
+                        color = Brand.TextSecondary, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (liked > 0) {
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { includeLiked = !includeLiked }.padding(vertical = 2.dp),
@@ -555,7 +684,7 @@ fun ImportDialog(vm: AppViewModel) {
                         Text("Also save my $liked liked videos")
                     }
                 }
-                if (other > 0) Text("$other other links (watch history, your own posts…) are ignored.", color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall)
+                if (other > 0) Text("$other other links (watch history, shares…) are ignored.", color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall)
                 Text("Downloads run in the background, a few seconds apart. Already-saved videos are skipped.", color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall)
             }
         },

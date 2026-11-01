@@ -46,6 +46,14 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_TAGS_CLEANED, false)
         set(value) = prefs.edit { putBoolean(KEY_AUTO_TAGS_CLEANED, value) }
 
+    /**
+     * Collection names known without any posts in them yet (from the export, which lists names only,
+     * or created in the app). Collections with posts live in the notes themselves.
+     */
+    var knownCollections: List<String>
+        get() = prefs.getString(KEY_COLLECTIONS, null)?.split('\n')?.filter { it.isNotEmpty() }.orEmpty()
+        set(value) = prefs.edit { putString(KEY_COLLECTIONS, value.distinct().joinToString("\n")) }
+
     var autoUpdateYtDlp: Boolean
         get() = prefs.getBoolean(KEY_YTDLP_AUTO, true)
         set(value) = prefs.edit { putBoolean(KEY_YTDLP_AUTO, value) }
@@ -59,5 +67,6 @@ class Settings(context: Context) {
         const val KEY_AUTO_TAGS_CLEANED = "auto_tags_cleaned"
         const val KEY_GALLERY = "show_in_gallery"
         const val KEY_OWN_HANDLE = "own_handle"
+        const val KEY_COLLECTIONS = "known_collections"
     }
 }

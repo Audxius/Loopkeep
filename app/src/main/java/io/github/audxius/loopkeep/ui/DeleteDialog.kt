@@ -12,15 +12,20 @@ import androidx.compose.ui.text.font.FontWeight
 import io.github.audxius.loopkeep.data.VideoEntity
 
 @Composable
-fun DeleteDialog(item: VideoEntity, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun DeleteDialog(item: VideoEntity, onConfirm: () -> Unit, onDismiss: () -> Unit) = DeleteDialog(listOf(item), onConfirm, onDismiss)
+
+@Composable
+fun DeleteDialog(items: List<VideoEntity>, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val one = items.singleOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Brand.Surface2,
         icon = { Icon(Icons.Outlined.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
-        title = { Text("Delete this post?") },
+        title = { Text(if (one != null) "Delete this post?" else "Delete ${items.size} posts?") },
         text = {
             Text(
-                "Removes \"${item.noteName}\" and its video and images from your folder, including your notes on it. This can't be undone.",
+                if (one != null) "Removes \"${one.noteName}\" and its video and images from your folder, including your notes on it. This can't be undone."
+                else "Removes their notes, videos and images from your folder, including your notes on them. This can't be undone.",
                 color = Brand.TextSecondary,
             )
         },

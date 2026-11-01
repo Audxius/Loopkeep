@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -70,12 +71,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Collection name → number of posts, most used first. */
-    val collections: StateFlow<List<Pair<String, Int>>> = videos.observeCollectionStrings()
-        .map { strings ->
-            strings.flatMap { it.split('\n') }.filter { it.isNotEmpty() }
-                .groupingBy { it }.eachCount().toList().sortedWith(compareBy({ -it.second }, { it.first.lowercase() }))
-        }
+    private val knownCollections = MutableStateFlow(graph.settings.knownCollections)
+
+    /** Collection name → number of posts, most used first; known but still empty ones last. */
+    val collections: StateFlow<List<Pair<String, Int>>> = combine(videos.observeCollectionStrings(), knownCollections) { strings, known ->
+        val used = strings.flatMap { it.split('\n') }.filter { it.isNotEmpty() }
+            .groupingBy { it }.eachCount().toList().sortedWith(compareBy({ -it.second }, { it.first.lowercase() }))
+        val names = used.map { it.first }.toSet()
+        used + known.filter { it !in names }.map { it to 0 }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val queueItems: StateFlow<List<QueueItem>> = graph.db.queue().observeRecent()
@@ -235,7 +239,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
                 ExportParser.parse(bytes, name)
             }
-            if (scan.entries.isEmpty()) {
+            if (scan.entries.isEmpty() && scan.collectionNames.isNotEmpty()) {
+                rememberCollections(scan.collectionNames)
+                _message.value = "No videos in that file, but added your ${scan.collectionNames.size} collections"
+            } else if (scan.entries.isEmpty()) {
                 _message.value = "No TikTok video links found in that file. Try the JSON export, or the ZIP as downloaded."
             } else {
                 _pendingImport.value = PendingImport(name, scan)
@@ -248,8 +255,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _pendingImport.value = null
         val owner = pending.scan.ownerHandle ?: graph.settings.ownHandle
         pending.scan.ownerHandle?.let { graph.settings.ownHandle = it }
+        rememberCollections(pending.scan.collectionNames)
         val r = graph.queue.enqueueExport(pending.scan.entries, includeLiked, includeOwn, owner)
         _message.value = "Import: ${r.summary}"
+    }
+
+    private fun rememberCollections(names: List<String>) {
+        val clean = names.map { it.trim() }.filter { it.isNotEmpty() }
+        if (clean.isEmpty()) return
+        graph.settings.knownCollections = (knownCollections.value + clean).distinct()
+        knownCollections.value = graph.settings.knownCollections
+    }
+
+    fun createCollection(name: String) = rememberCollections(listOf(name))
+
+    /** Forgets an empty collection; collections with posts are defined by their notes. */
+    fun forgetCollection(name: String) {
+        graph.settings.knownCollections = knownCollections.value - name
+        knownCollections.value = graph.settings.knownCollections
     }
 
     fun cancelImport() { _pendingImport.value = null }
@@ -353,21 +376,62 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Deletes the note and all of its media files from the folder, and forgets the item. */
-    fun delete(item: VideoEntity) = viewModelScope.launch {
+    /** Adds [name] to (or removes it from) the collections of every post in [items], one note at a time. */
+    fun fileInCollection(items: List<VideoEntity>, name: String, add: Boolean) = viewModelScope.launch {
         val storage = storageOrComplain() ?: return@launch
-        try {
+        val col = name.trim().ifEmpty { return@launch }
+        if (add) rememberCollections(listOf(col))
+        var changed = 0
+        var failed = 0
+        withBusy(if (add) "Adding to $col…" else "Removing from $col…") {
             withContext(Dispatchers.IO) {
-                val media = listOfNotNull(item.videoName, item.coverName, item.audioName) +
-                    item.imageNames.split('\n').filter { it.isNotEmpty() }
-                storage.deleteNamed(storage.mediaDir(), media.toSet())
-                storage.delete(item.noteDocId)
-                videos.deleteByTiktokId(item.tiktokId)
-                graph.db.queue().deleteByTiktokId(item.tiktokId)
+                for (item in items) {
+                    try {
+                        val text = storage.readText(item.noteDocId)
+                        val doc = NoteDocument.parse(text)
+                        val current = doc.frontmatter.getList(NoteKeys.COLLECTIONS)
+                        val next = if (add) (current + col).distinct() else current - col
+                        if (next == current) continue
+                        if (next.isEmpty()) doc.frontmatter.remove(NoteKeys.COLLECTIONS) else doc.frontmatter.setList(NoteKeys.COLLECTIONS, next)
+                        storage.writeText(item.noteDocId, doc.render())
+                        storage.info(item.noteDocId)?.let { graph.indexer.indexNote(storage, it) }
+                        changed++
+                    } catch (e: Exception) {
+                        failed++
+                    }
+                }
             }
-            _message.value = "Deleted "
-        } catch (e: Exception) {
-            _message.value = "Could not delete: "
+        }
+        val posts = if (changed == 1) "post" else "posts"
+        _message.value = (if (add) "Added $changed $posts to $col" else "Removed $changed $posts from $col") +
+            if (failed > 0) ". $failed couldn't be changed; try Rescan." else ""
+    }
+
+    /** Deletes the note and all of its media files from the folder, and forgets the item. */
+    fun delete(item: VideoEntity) = delete(listOf(item))
+
+    fun delete(items: List<VideoEntity>) = viewModelScope.launch {
+        val storage = storageOrComplain() ?: return@launch
+        var deleted = 0
+        withContext(Dispatchers.IO) {
+            val mediaDir = runCatching { storage.mediaDir() }.getOrNull()
+            for (item in items) {
+                try {
+                    val media = listOfNotNull(item.videoName, item.coverName, item.audioName) +
+                        item.imageNames.split('\n').filter { it.isNotEmpty() }
+                    mediaDir?.let { storage.deleteNamed(it, media.toSet()) }
+                    storage.delete(item.noteDocId)
+                    videos.deleteByTiktokId(item.tiktokId)
+                    graph.db.queue().deleteByTiktokId(item.tiktokId)
+                    deleted++
+                } catch (_: Exception) {
+                }
+            }
+        }
+        _message.value = when {
+            deleted == items.size && deleted == 1 -> "Deleted ${items[0].noteName}"
+            deleted == items.size -> "Deleted $deleted posts"
+            else -> "Deleted $deleted of ${items.size} posts; the rest couldn't be removed. Try Rescan."
         }
     }
 
