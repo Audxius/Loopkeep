@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import io.github.audxius.loopkeep.core.FileNames
 import io.github.audxius.loopkeep.core.NoteStatus
@@ -21,8 +22,9 @@ import java.io.IOException
 import java.time.LocalDate
 
 /**
- * Attaches a video file from the phone to an existing note: for posts TikTok won't hand out
- * anonymously, such as your own "Only me" videos saved with TikTok's "Save video".
+ * Moves a video file from the phone into the archive and attaches it to an existing note: for posts
+ * TikTok won't hand out anonymously, such as your own "Only me" videos saved with TikTok's "Save video".
+ * The original is deleted only after the copy and the note are written.
  * The note keeps its dates (posted comes from the post ID), caption, notes and collections.
  */
 class LocalVideoImport(private val context: Context, private val indexer: Indexer) {
@@ -82,7 +84,15 @@ class LocalVideoImport(private val context: Context, private val indexer: Indexe
             )
             storage.writeText(item.noteDocId, NoteWriter.merge(text, meta))
             storage.info(item.noteDocId)?.let { indexer.indexNote(storage, it) }
-            "Video attached to ${item.noteName}"
+
+            // Move, not copy: now that the video is safely in media/, remove the original (e.g. the copy
+            // TikTok's "Save video" put in the gallery) so it isn't kept twice.
+            val removed = runCatching { DocumentsContract.deleteDocument(resolver, source) }.getOrDefault(false)
+            if (removed) {
+                "Video moved into your archive"
+            } else {
+                "Video added to your archive. The original${name?.let { " ()" } ?: ""} couldn't be removed; delete it yourself if you like."
+            }
         } finally {
             dir.deleteRecursively()
         }
