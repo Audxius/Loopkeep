@@ -39,7 +39,7 @@ import io.github.audxius.loopkeep.core.NoteStatus
 
 fun statusLabel(status: String) = when (status) {
     NoteStatus.FULL.value -> "Saved"
-    NoteStatus.TEXT_ONLY.value -> "Caption only"
+    NoteStatus.TEXT_ONLY.value -> "Partial"
     NoteStatus.UNAVAILABLE.value -> "Unavailable"
     else -> status
 }

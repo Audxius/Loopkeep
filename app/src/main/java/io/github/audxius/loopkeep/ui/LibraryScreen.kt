@@ -83,6 +83,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -179,6 +180,7 @@ fun LibraryScreen(vm: AppViewModel) {
     val items by vm.items.collectAsStateWithLifecycle()
     val filter by vm.filter.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val mineCount by vm.mineCount.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     // Long-press starts selecting; then taps add or remove posts. Kept by ID so the list can change underneath.
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
@@ -186,10 +188,12 @@ fun LibraryScreen(vm: AppViewModel) {
     val selected = items.orEmpty().filter { it.tiktokId in selectedIds }
     var deleting by remember { mutableStateOf<List<VideoEntity>?>(null) }
     var filing by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf<Uri?>(null) }
     MessageEffect(vm, snackbar)
     ImportDialog(vm)
+    adding?.let { AddVideoDialog(vm, it, onDismiss = { adding = null }) }
     BackHandler(enabled = selecting) { selectedIds = emptySet() }
-    // Inside a collection (or a search), back returns to the collections.
+    // Inside a collection, My videos or a search, back returns to the collections.
     BackHandler(enabled = !selecting && filter.isFiltered) { vm.clearFilters() }
     deleting?.let { d -> DeleteDialog(d, onConfirm = { vm.delete(d); selectedIds = emptySet() }, onDismiss = { deleting = null }) }
     if (filing) CollectionPicker(vm, selected, onDone = { filing = false; selectedIds = emptySet() }, onDismiss = { filing = false })
@@ -198,18 +202,27 @@ fun LibraryScreen(vm: AppViewModel) {
     val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) vm.readExport(uri)
     }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) adding = uri }
+
+    // Two places on the home screen: the collections, and My videos (your own posts), each a tab.
+    val mineTab = filter.mine && filter.collection == null && !filter.uncategorized
+    val home = !filter.isFiltered
 
     Box(Modifier.fillMaxSize().background(Brand.Background)) {
         val list = items
         LazyVerticalGrid(
             columns = GridCells.Adaptive(112.dp),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 112.dp),
+            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 112.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) { Header(vm) }
-            item(span = { GridItemSpan(maxLineSpan) }) { Stats(vm) }
+            val emptyLibrary = home && list.isNullOrEmpty() && mineCount == 0
+            if (!emptyLibrary && (home || mineTab)) {
+                item(span = { GridItemSpan(maxLineSpan) }) { HomeTabs(mineTab, mineCount, onCollections = vm::clearFilters, onMine = vm::showMine) }
+            }
+            if (home && !emptyLibrary) item(span = { GridItemSpan(maxLineSpan) }) { StatusStrip(vm) }
             item(span = { GridItemSpan(maxLineSpan) }) { DownloadBanner(vm) }
             busy?.let { b ->
                 item(span = { GridItemSpan(maxLineSpan) }) {
@@ -219,22 +232,29 @@ fun LibraryScreen(vm: AppViewModel) {
                     }
                 }
             }
-            if (list.isNullOrEmpty() && !filter.isFiltered) {
+            if (emptyLibrary) {
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyLibrary(onImport = { pickExport.launch(arrayOf("*/*")) }, onLinks = vm::addLinks) }
-            } else if (!filter.isFiltered) {
+            } else if (home) {
                 // Home: collections only. Posts are opened per collection (or Uncategorized).
                 item(span = { GridItemSpan(maxLineSpan) }) { SearchBar(filter.search, vm::setSearch) }
                 item(span = { GridItemSpan(maxLineSpan) }) { CollectionsHome(vm) }
             } else {
-                if (filter.collection == null && !filter.uncategorized && !filter.mine) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { SearchBar(filter.search, vm::setSearch) }
+                if (mineTab) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        MineHeader(vm, onSync = { vm.open(Screen.TikTokSync) }, onAdd = { pickVideo.launch(arrayOf("video/*")) })
+                    }
+                } else {
+                    if (filter.collection == null && !filter.uncategorized) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { SearchBar(filter.search, vm::setSearch) }
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }) { ResultsLabel(vm, list?.size ?: 0) }
                 }
-                item(span = { GridItemSpan(maxLineSpan) }) { ResultsLabel(vm, list?.size ?: 0) }
                 item(span = { GridItemSpan(maxLineSpan) }) { FilterRow(vm) }
                 if (list != null && list.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            val empty = filter.collection?.takeIf { filter.search.isBlank() && filter.status == null && filter.tag == null && filter.authorHandle == null }
+                            val unfiltered = filter.search.isBlank() && filter.status == null && filter.tag == null && filter.authorHandle == null
+                            val empty = filter.collection?.takeIf { unfiltered }
                             if (empty != null) {
                                 Text("Nothing in $empty yet", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
                                 Text(
@@ -246,7 +266,13 @@ fun LibraryScreen(vm: AppViewModel) {
                                     TextButton(onClick = vm::showUncategorized) { Text("Uncategorized", color = Brand.Coral) }
                                     TextButton(onClick = { vm.forgetCollection(empty); vm.clearFilters() }) { Text("Remove collection", color = Brand.TextSecondary) }
                                 }
-                            } else if (filter.uncategorized && filter.search.isBlank() && filter.status == null && filter.tag == null && filter.authorHandle == null) {
+                            } else if (mineTab && unfiltered) {
+                                Text("None of your videos yet", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Sign in under Sync from TikTok and Loopkeep pulls every video from your profile, private ones included.",
+                                    color = Brand.TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp),
+                                )
+                            } else if (filter.uncategorized && unfiltered) {
                                 Text("Everything is in a collection", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
                                 Text(
                                     "Posts you save that aren't in any collection show up here, ready to sort.",
@@ -254,7 +280,7 @@ fun LibraryScreen(vm: AppViewModel) {
                                 )
                             } else {
                                 Text("Nothing matches", color = Brand.TextSecondary)
-                                TextButton(onClick = vm::clearFilters) { Text("Clear filters", color = Brand.Coral) }
+                                TextButton(onClick = { if (mineTab) vm.setStatus(null) else vm.clearFilters() }) { Text("Clear filters", color = Brand.Coral) }
                             }
                         }
                     }
@@ -290,7 +316,7 @@ fun LibraryScreen(vm: AppViewModel) {
 private fun Header(vm: AppViewModel) {
     val queueCounts by vm.queueCounts.collectAsStateWithLifecycle()
     val active = (queueCounts[QueueState.PENDING] ?: 0) + (queueCounts[QueueState.RUNNING] ?: 0)
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         LogoMark(34)
         Spacer(Modifier.width(12.dp))
         Text("Loopkeep", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
@@ -303,34 +329,86 @@ private fun Header(vm: AppViewModel) {
     }
 }
 
-/** The counters: saved / caption only / unavailable / failed. Tap to filter (failed opens the queue). */
+/** Collections | My videos. */
 @Composable
-private fun Stats(vm: AppViewModel) {
+private fun HomeTabs(mine: Boolean, mineCount: Int, onCollections: () -> Unit, onMine: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 14.dp).clip(CircleShape).background(Brand.Surface1)
+            .border(1.dp, Brand.Line.copy(alpha = 0.7f), CircleShape).padding(4.dp),
+    ) {
+        @Composable
+        fun tab(label: String, icon: ImageVector, active: Boolean, count: Int?, onClick: () -> Unit) {
+            Row(
+                Modifier.weight(1f).clip(CircleShape)
+                    .background(if (active) Brand.GradientHorizontal else SolidColor(Color.Transparent))
+                    .clickable(onClick = onClick).padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(icon, null, tint = if (active) Color.White else Brand.TextSecondary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(label, color = if (active) Color.White else Brand.TextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                if (count != null && count > 0) {
+                    Text(
+                        "$count", color = if (active) Color.White else Brand.TextTertiary, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(start = 6.dp).clip(CircleShape)
+                            .background(if (active) Color.White.copy(alpha = 0.22f) else Brand.Surface3).padding(horizontal = 7.dp, vertical = 1.dp),
+                    )
+                }
+            }
+        }
+        tab("Collections", Icons.Outlined.CollectionsBookmark, !mine, null, onCollections)
+        tab("My videos", Icons.Default.Person, mine, mineCount, onMine)
+    }
+}
+
+/** The counters as one card: a proportion bar, then saved / partial / gone / failed. Tap to filter (failed opens the queue). */
+@Composable
+private fun StatusStrip(vm: AppViewModel) {
     val counts by vm.statusCounts.collectAsStateWithLifecycle()
     val queueCounts by vm.queueCounts.collectAsStateWithLifecycle()
     val filter by vm.filter.collectAsStateWithLifecycle()
-    val total = counts.values.sum()
+    val full = counts[NoteStatus.FULL.value] ?: 0
+    val partial = counts[NoteStatus.TEXT_ONLY.value] ?: 0
+    val gone = counts[NoteStatus.UNAVAILABLE.value] ?: 0
+    val total = full + partial + gone
     val failed = queueCounts[QueueState.FAILED] ?: 0
-    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
-        Text(
-            if (total == 0) "Nothing saved yet" else "$total ${if (total == 1) "post" else "posts"} in your archive",
-            color = Brand.TextSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 2.dp, bottom = 10.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            @Composable
-            fun tile(value: Int, label: String, color: Color, status: String?, onClick: () -> Unit) {
-                val selected = status != null && filter.status == status
-                StatTile(
-                    "$value", label, color,
-                    Modifier.weight(1f)
-                        .then(if (selected) Modifier.border(1.5.dp, color, RoundedCornerShape(16.dp)) else Modifier)
-                        .clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
-                )
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(22.dp)).background(Brand.Surface1)
+            .border(1.dp, Brand.Line.copy(alpha = 0.7f), RoundedCornerShape(22.dp)).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("$total", color = Brand.TextPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold, lineHeight = 32.sp)
+            Text(
+                if (total == 1) " post archived" else " posts archived",
+                color = Brand.TextSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+        Row(Modifier.padding(top = 10.dp).fillMaxWidth().height(6.dp).clip(CircleShape).background(Brand.Surface3)) {
+            listOf(full to Brand.Teal, partial to Brand.Gold, gone to Brand.Rose).forEach { (n, color) ->
+                if (n > 0) Box(Modifier.weight(n.toFloat()).fillMaxHeight().background(color))
             }
-            tile(counts[NoteStatus.FULL.value] ?: 0, "Saved", Brand.Teal, NoteStatus.FULL.value) { vm.toggleStatus(NoteStatus.FULL.value) }
-            tile(counts[NoteStatus.TEXT_ONLY.value] ?: 0, "Partial", Brand.Gold, NoteStatus.TEXT_ONLY.value) { vm.toggleStatus(NoteStatus.TEXT_ONLY.value) }
-            tile(counts[NoteStatus.UNAVAILABLE.value] ?: 0, "Gone", Brand.Rose, NoteStatus.UNAVAILABLE.value) { vm.toggleStatus(NoteStatus.UNAVAILABLE.value) }
-            tile(failed, "Failed", Brand.Coral, null) { vm.open(Screen.Queue) }
+        }
+        Row(Modifier.padding(top = 8.dp).fillMaxWidth()) {
+            @Composable
+            fun segment(value: Int, label: String, color: Color, status: String?, onClick: () -> Unit) {
+                val active = status != null && filter.status == status
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                        .background(if (active) color.copy(alpha = 0.16f) else Color.Transparent)
+                        .clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+                        Spacer(Modifier.width(6.dp))
+                        Text("$value", color = Brand.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                    Text(label, color = Brand.TextTertiary, fontSize = 12.sp)
+                }
+            }
+            segment(full, "Saved", Brand.Teal, NoteStatus.FULL.value) { vm.toggleStatus(NoteStatus.FULL.value) }
+            segment(partial, "Partial", Brand.Gold, NoteStatus.TEXT_ONLY.value) { vm.toggleStatus(NoteStatus.TEXT_ONLY.value) }
+            segment(gone, "Gone", Brand.Rose, NoteStatus.UNAVAILABLE.value) { vm.toggleStatus(NoteStatus.UNAVAILABLE.value) }
+            segment(failed, "Failed", Brand.Coral, null) { vm.open(Screen.Queue) }
         }
     }
 }
@@ -453,93 +531,193 @@ private fun <T> MenuChip(
     }
 }
 
-private const val MINE_KEY = "\u0000mine"
 private const val LOOSE_KEY = "\u0000loose"
 
-/** The home screen: Uncategorized, My videos, then every collection, as big tiles. */
+/** The collections tab: Uncategorized as an inbox, then every collection as a cover mosaic. */
 @Composable
 private fun CollectionsHome(vm: AppViewModel) {
     val collections by vm.collections.collectAsStateWithLifecycle()
     val uncategorized by vm.uncategorizedCount.collectAsStateWithLifecycle()
-    val mine by vm.mineCount.collectAsStateWithLifecycle()
     val ownHandle = vm.ownHandle
     val all by vm.allById.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
     if (creating) NewCollectionDialog(onCreate = { vm.createCollection(it); creating = false }, onDismiss = { creating = false })
-    // Newest post with a cover stands for each collection.
+    // The newest three covers stand for each collection. Your own posts live in My videos, not here.
     val covers = remember(all, ownHandle) {
-        val out = HashMap<String, String>()
+        val out = HashMap<String, MutableList<String>>()
+        fun add(key: String, cover: String) { val l = out.getOrPut(key) { mutableListOf() }; if (l.size < 3) l += cover }
         for (v in all.values.sortedByDescending { it.savedSort }) {
             val cover = v.coverUri ?: continue
             val own = v.tiktokId.startsWith("own-") || (ownHandle != null && v.authorHandle == ownHandle)
-            when {
-                own -> out.putIfAbsent(MINE_KEY, cover)
-                v.collectionList.isEmpty() -> out.putIfAbsent(LOOSE_KEY, cover)
-            }
-            v.collectionList.forEach { out.putIfAbsent(it, cover) }
+            if (v.collectionList.isEmpty() && !own) add(LOOSE_KEY, cover)
+            v.collectionList.forEach { add(it, cover) }
         }
         out
     }
     Column(Modifier.padding(bottom = 14.dp)) {
-        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Collections", style = MaterialTheme.typography.titleLarge, color = Brand.TextPrimary, modifier = Modifier.weight(1f))
+        InboxCard(uncategorized, covers[LOOSE_KEY].orEmpty()) { vm.showUncategorized() }
+        Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Collections", style = MaterialTheme.typography.titleLarge, color = Brand.TextPrimary)
+                Text(
+                    "${collections.size} ${if (collections.size == 1) "collection" else "collections"}",
+                    color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall,
+                )
+            }
             TextButton(onClick = { vm.open(Screen.TikTokSync) }) { Text("Sync from TikTok", color = Brand.Coral) }
         }
-        val tiles = buildList<@Composable (Modifier) -> Unit> {
-            add { m -> CollectionTile("Uncategorized", uncategorized, covers[LOOSE_KEY], m, icon = Icons.Default.Inbox) { vm.showUncategorized() } }
-            if (mine > 0) add { m -> CollectionTile("My videos", mine, covers[MINE_KEY], m, icon = Icons.Default.Person) { vm.showMine() } }
-            collections.forEach { (name, n) -> add { m -> CollectionTile(name, n, covers[name], m) { vm.setCollection(name) } } }
-            add { m -> NewCollectionTile(m) { creating = true } }
+        val cards = buildList<@Composable (Modifier) -> Unit> {
+            collections.forEach { (name, n) -> add { m -> CollectionCard(name, n, covers[name].orEmpty(), m) { vm.setCollection(name) } } }
+            add { m -> NewCollectionCard(m) { creating = true } }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            tiles.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    row.forEach { tile -> tile(Modifier.weight(1f)) }
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            cards.chunked(2).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { card -> card(Modifier.weight(1f)) }
+                    repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
     }
 }
 
+/** Uncategorized: posts still to sort, with their newest covers fanned out. */
 @Composable
-private fun CollectionTile(name: String, count: Int, cover: String?, modifier: Modifier, icon: ImageVector? = null, onClick: () -> Unit) {
-    val accent = icon != null
-    Box(
-        modifier.aspectRatio(0.72f).clip(RoundedCornerShape(18.dp))
-            .background(if (accent) Brush.linearGradient(listOf(Brand.Coral.copy(alpha = 0.35f), Brand.Surface2)) else SolidColor(Brand.Surface2))
-            .clickable(onClick = onClick),
+private fun InboxCard(count: Int, covers: List<String>, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(116.dp).clip(RoundedCornerShape(22.dp))
+            .background(Brush.horizontalGradient(listOf(Brand.Coral.copy(alpha = 0.24f), Brand.Peach.copy(alpha = 0.08f), Brand.Surface1)))
+            .border(1.dp, Brand.Coral.copy(alpha = 0.25f), RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick).padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (cover != null) AsyncImage(cover, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000)), startY = 120f)))
-        if (accent) {
-            Icon(
-                icon!!, null, tint = Color.White,
-                modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(CircleShape).background(Color(0x88000000)).padding(6.dp).size(18.dp),
+        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Brand.Coral.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.Inbox, null, tint = Brand.Peach, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Uncategorized", color = Brand.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(
+                if (count == 0) "All sorted" else "$count ${if (count == 1) "post" else "posts"} to sort",
+                color = if (count == 0) Brand.Teal else Brand.TextSecondary, fontSize = 13.sp,
             )
         }
-        Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
-            Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                when {
-                    count == 0 && name == "Uncategorized" -> "All sorted"
-                    count == 0 -> "Empty"
-                    else -> "$count ${if (count == 1) "post" else "posts"}"
-                },
-                color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp,
-            )
+        Box(Modifier.width(128.dp).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
+            covers.take(3).reversed().forEachIndexed { i, cover ->
+                val fromRight = covers.take(3).size - 1 - i
+                AsyncImage(
+                    cover, null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.padding(end = (14 + fromRight * 26).dp).size(width = 54.dp, height = 80.dp)
+                        .graphicsLayer { rotationZ = (fromRight - 1) * -7f }
+                        .clip(RoundedCornerShape(10.dp)).border(2.dp, Brand.Background, RoundedCornerShape(10.dp)),
+                )
+            }
         }
     }
 }
 
+/** A collection: a mosaic of its newest covers (one large, two small), its name and size. */
 @Composable
-private fun NewCollectionTile(modifier: Modifier, onClick: () -> Unit) {
+private fun CollectionCard(name: String, count: Int, covers: List<String>, modifier: Modifier, onClick: () -> Unit) {
+    Column(modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(20.dp)).background(Brand.Surface2)) {
+            when {
+                covers.size >= 3 -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    AsyncImage(covers[0], null, contentScale = ContentScale.Crop, modifier = Modifier.weight(1.6f).fillMaxHeight())
+                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        AsyncImage(covers[1], null, contentScale = ContentScale.Crop, modifier = Modifier.weight(1f).fillMaxWidth())
+                        AsyncImage(covers[2], null, contentScale = ContentScale.Crop, modifier = Modifier.weight(1f).fillMaxWidth())
+                    }
+                }
+                covers.isNotEmpty() -> AsyncImage(covers[0], null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                else -> Box(
+                    Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Brand.Surface3, Brand.Surface1))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        name.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "?",
+                        color = Brand.TextTertiary, fontSize = 44.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            if (count > 0) {
+                Text(
+                    "$count", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(CircleShape).background(Color(0xB3000000))
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
+                )
+            }
+        }
+        Text(
+            name, color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+        )
+        Text(
+            if (count == 0) "Empty" else "$count ${if (count == 1) "post" else "posts"}",
+            color = Brand.TextTertiary, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun NewCollectionCard(modifier: Modifier, onClick: () -> Unit) {
+    Column(modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(20.dp))
+                .border(1.5.dp, Brand.Line, RoundedCornerShape(20.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(Brand.Surface2), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Add, null, tint = Brand.Peach, modifier = Modifier.size(26.dp))
+            }
+        }
+        Text("New collection", color = Brand.TextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+        Text(" ", fontSize = 12.sp)
+    }
+}
+
+/** My videos: your profile, kept apart from the collections, with the ways to fill it. */
+@Composable
+private fun MineHeader(vm: AppViewModel, onSync: () -> Unit, onAdd: () -> Unit) {
+    val all by vm.allById.collectAsStateWithLifecycle()
+    val handle = vm.ownHandle
+    val mine = remember(all, handle) { all.values.filter { it.tiktokId.startsWith("own-") || (handle != null && it.authorHandle == handle) } }
+    val partial = mine.count { it.status != NoteStatus.FULL.value }
     Column(
-        modifier.aspectRatio(0.72f).clip(RoundedCornerShape(18.dp)).border(1.5.dp, Brand.Surface3, RoundedCornerShape(18.dp)).clickable(onClick = onClick),
-        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+        Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(22.dp))
+            .background(Brush.verticalGradient(listOf(Brand.Coral.copy(alpha = 0.20f), Brand.Surface1)))
+            .border(1.dp, Brand.Line.copy(alpha = 0.7f), RoundedCornerShape(22.dp)).padding(16.dp),
     ) {
-        Icon(Icons.Default.Add, null, tint = Brand.TextSecondary, modifier = Modifier.size(32.dp))
-        Text("New collection", color = Brand.TextSecondary, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(handle ?: "me", 56.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(handle?.let { "@$it" } ?: "Your videos", color = Brand.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    Text("${mine.size} ${if (mine.size == 1) "video" else "videos"}", color = Brand.TextSecondary, fontSize = 13.sp)
+                    if (partial > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        StatusPill("$partial partial", Brand.Gold)
+                    }
+                }
+            }
+        }
+        Text(
+            if (partial > 0) "Partial ones are missing their video. Sync from TikTok signs in as you and fetches them, private ones included."
+            else "Your own posts, apart from your collections. Sync from TikTok pulls every video on your profile, private ones included.",
+            color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp),
+        )
+        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GradientButton("Sync from TikTok", onClick = onSync, icon = Icons.Default.CloudDownload, modifier = Modifier.weight(1f))
+            Row(
+                Modifier.clip(CircleShape).background(Brand.Surface3).clickable(onClick = onAdd).padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Add, null, tint = Brand.TextPrimary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("From phone", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            }
+        }
     }
 }
 
