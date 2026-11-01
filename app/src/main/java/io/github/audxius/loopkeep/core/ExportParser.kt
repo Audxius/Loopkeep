@@ -31,7 +31,16 @@ data class ExportEntry(
     val timestamp: String? = null,
 )
 
-data class ExportScan(val entries: List<ExportEntry>, /** The account's own @handle, from the profile section. */ val ownerHandle: String? = null) {
+data class ExportScan(
+    val entries: List<ExportEntry>,
+    /** The account's own @handle, from the profile section. */
+    val ownerHandle: String? = null,
+    /**
+     * The names of the user's collections. TikTok's export lists them ("Favorite Collection")
+     * but, as of 2026, not which videos are in them.
+     */
+    val collectionNames: List<String> = emptyList(),
+) {
     fun count(source: ExportSource) = entries.count { it.source == source }
 }
 
@@ -49,15 +58,18 @@ object ExportParser {
 
     fun parse(bytes: ByteArray, fileName: String = ""): ExportScan {
         owner = null
+        collectionNames.clear()
         val raw = when {
             isZip(bytes) -> parseZip(bytes)
             else -> parseText(bytes.toString(Charsets.UTF_8), fileName)
         }
-        return ExportScan(dedupe(raw), owner)
+        return ExportScan(dedupe(raw), owner, collectionNames.distinct())
     }
 
     // Set while parsing; the parser is single-threaded per call.
     @Volatile private var owner: String? = null
+    private val collectionNames = mutableListOf<String>()
+    private val listedCollectionKey = Regex("""^(favou?rite[ _]?)?collection([ _]?(name|title))?$""", RegexOption.IGNORE_CASE)
     private val ownerKey = Regex("""^(user ?name|unique ?id)$""", RegexOption.IGNORE_CASE)
     private val handleValue = Regex("""^@?([A-Za-z0-9._]{2,24})$""")
     private val captionKey = Regex("""^(title|caption|description|desc|text|video ?description)$""", RegexOption.IGNORE_CASE)
@@ -161,6 +173,12 @@ object ExportParser {
                 val urls = strings.map { it.second }
                     .flatMap { TikTokUrls.findUrls(it) }
                     .filter { TikTokUrls.isPostUrl(it) }
+                // {"Date": …, "FavoriteCollection": "Recipes"}: a listed collection, maybe without its videos.
+                if (inCollections && urls.isEmpty()) {
+                    (named ?: strings.firstOrNull { (k, _) -> listedCollectionKey.matches(k.trim()) }?.second?.trim()?.ifEmpty { null })
+                        ?.let { collectionNames += it }
+                }
+                current?.takeIf { urls.isNotEmpty() }?.let { collectionNames += it }
                 val source = classify(path)
                 if (source == ExportSource.OWN) {
                     ownPost(strings, urls)?.let { out += it }
@@ -227,6 +245,7 @@ object ExportParser {
         var heading = ""
         var collection: String? = null
         val collectionLine = Regex("""^collection(?: name)?\s*[:\-]\s*(.+)$""", RegexOption.IGNORE_CASE)
+        val listedCollectionLine = Regex("""^favou?rite ?collection\s*:\s*(.+)$""", RegexOption.IGNORE_CASE)
         var lastDate: LocalDate? = null
         var lastDateText: String? = null
         var lastDateLine = -10
@@ -235,7 +254,8 @@ object ExportParser {
         for ((i, rawLine) in lines.withIndex()) {
             val line = rawLine.trim()
             if (line.isEmpty()) continue
-            collectionLine.find(line)?.let { collection = it.groupValues[1].trim(); continue }
+            collectionLine.find(line)?.let { collection = it.groupValues[1].trim(); collectionNames += collection!!; continue }
+            listedCollectionLine.find(line)?.let { collectionNames += it.groupValues[1].trim(); continue }
             if (owner == null && (profileFile || heading.contains("profile", ignoreCase = true))) {
                 Regex("""^user ?name\s*:\s*@?([A-Za-z0-9._]{2,24})\s*$""", RegexOption.IGNORE_CASE).find(line)?.let { owner = it.groupValues[1]; continue }
             }
