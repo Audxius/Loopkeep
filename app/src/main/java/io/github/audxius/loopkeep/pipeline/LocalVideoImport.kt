@@ -20,55 +20,23 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
+import java.time.ZoneId
 
 /**
- * Moves a video file from the phone into the archive and attaches it to an existing note: for posts
- * TikTok won't hand out anonymously, such as your own "Only me" videos saved with TikTok's "Save video".
+ * Moves video files from the phone into the archive: either attached to an existing note (a post
+ * TikTok won't hand out), or as a new post (your own "Only me" videos, which have no link).
  * The original is deleted only after the copy and the note are written.
- * The note keeps its dates (posted comes from the post ID), caption, notes and collections.
  */
 class LocalVideoImport(private val context: Context, private val indexer: Indexer) {
 
+    private class Probed(val name: String?, val ext: String, val file: File, val durationSeconds: Int?, val frame: Bitmap?)
+
+    /** Attaches to an existing note. Its dates (posted comes from the post ID), caption, notes and collections stay. */
     suspend fun attach(storage: VaultStorage, item: VideoEntity, source: Uri): String = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        val name = resolver.query(source, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0) else null
-        }
-        val ext = videoExtension(name, resolver.getType(source))
         val dir = File(context.cacheDir, "attach").apply { deleteRecursively(); mkdirs() }
-        val video = File(dir, FileNames.videoFile(item.tiktokId, ext))
         try {
-            (resolver.openInputStream(source) ?: throw IOException("Cannot open the file")).use { input ->
-                video.outputStream().use { input.copyTo(it, 256 * 1024) }
-            }
-
-            var durationSeconds: Int? = null
-            var frame: Bitmap? = null
-            MediaMetadataRetriever().apply {
-                try {
-                    setDataSource(video.absolutePath)
-                    if (extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != "yes") {
-                        throw IOException("That file isn't a video")
-                    }
-                    durationSeconds = extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                        ?.let { ((it + 500) / 1000).toInt() }?.takeIf { it > 0 }
-                    // Keep TikTok's own cover if the note has one; otherwise a frame from the video.
-                    if (item.coverUri == null) frame = getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                } finally {
-                    release()
-                }
-            }
-
-            val mediaDir = storage.mediaDir()
-            val videoName = FileNames.videoFile(item.tiktokId, ext)
-            storage.importFile(video, mediaDir, videoName)
-            val coverName = frame?.let { bmp ->
-                val cover = File(dir, FileNames.coverFile(item.tiktokId))
-                cover.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
-                bmp.recycle()
-                FileNames.coverFile(item.tiktokId).also { storage.importFile(cover, mediaDir, it) }
-            }
-
+            val probed = copyAndProbe(source, dir, item.tiktokId, wantFrame = item.coverUri == null)
+            val (videoName, coverName) = store(storage, item.tiktokId, probed, dir)
             val text = storage.readText(item.noteDocId)
             val meta = VideoMeta(
                 tiktokId = item.tiktokId,
@@ -78,24 +46,109 @@ class LocalVideoImport(private val context: Context, private val indexer: Indexe
                 saved = LocalDate.now(), // only used if the note has no saved date
                 status = NoteStatus.FULL,
                 type = PostType.VIDEO,
-                durationSeconds = durationSeconds,
+                durationSeconds = probed.durationSeconds,
                 videoFile = videoName,
                 coverFile = coverName,
             )
             storage.writeText(item.noteDocId, NoteWriter.merge(text, meta))
             storage.info(item.noteDocId)?.let { indexer.indexNote(storage, it) }
-
-            // Move, not copy: now that the video is safely in media/, remove the original (e.g. the copy
-            // TikTok's "Save video" put in the gallery) so it isn't kept twice.
-            val removed = runCatching { DocumentsContract.deleteDocument(resolver, source) }.getOrDefault(false)
-            if (removed) {
-                "Video moved into your archive"
-            } else {
-                "Video added to your archive. The original${name?.let { " ()" } ?: ""} couldn't be removed; delete it yourself if you like."
-            }
+            finishMove(source, probed.name, "Video moved into your archive")
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    /**
+     * A new post from a file on the phone, for videos without a TikTok link (TikTok offers no link
+     * for "Only me" posts). [posted] is the date the user picked; it also orders the post.
+     */
+    suspend fun addNew(storage: VaultStorage, source: Uri, posted: LocalDate, caption: String, handle: String?): String =
+        withContext(Dispatchers.IO) {
+            val id = "own-%s-%04x".format(posted.toString().replace("-", ""), (source.toString().hashCode() and 0xffff))
+            val dir = File(context.cacheDir, "attach").apply { deleteRecursively(); mkdirs() }
+            try {
+                val probed = copyAndProbe(source, dir, id, wantFrame = true)
+                val (videoName, coverName) = store(storage, id, probed, dir)
+                val meta = VideoMeta(
+                    tiktokId = id,
+                    sourceUrl = "",
+                    author = handle,
+                    authorHandle = handle,
+                    posted = posted,
+                    saved = posted,
+                    status = NoteStatus.FULL,
+                    durationSeconds = probed.durationSeconds,
+                    videoFile = videoName,
+                    coverFile = coverName,
+                    caption = caption.trim(),
+                )
+                val notesDir = storage.notesDir()
+                val taken = storage.listChildren(notesDir).map { it.name }.toSet()
+                val name = FileNames.unique(FileNames.noteFileName(handle, caption, id)) { it in taken }
+                val doc = storage.createText(notesDir, name, NoteWriter.newNote(meta))
+                indexer.indexNote(storage, doc)
+                finishMove(source, probed.name, "Added to your archive as ${doc.name}")
+            } finally {
+                dir.deleteRecursively()
+            }
+        }
+
+    /** The date a file was last modified, as a starting point for the date picker. */
+    fun fileDate(source: Uri): LocalDate? = runCatching {
+        context.contentResolver.query(source, arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) {
+                java.time.Instant.ofEpochMilli(c.getLong(0)).atZone(ZoneId.systemDefault()).toLocalDate()
+            } else null
+        }
+    }.getOrNull()
+
+    private fun copyAndProbe(source: Uri, dir: File, id: String, wantFrame: Boolean): Probed {
+        val resolver = context.contentResolver
+        val name = resolver.query(source, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+        val ext = videoExtension(name, resolver.getType(source))
+        val file = File(dir, FileNames.videoFile(id, ext))
+        (resolver.openInputStream(source) ?: throw IOException("Cannot open the file")).use { input ->
+            file.outputStream().use { input.copyTo(it, 256 * 1024) }
+        }
+        var duration: Int? = null
+        var frame: Bitmap? = null
+        MediaMetadataRetriever().apply {
+            try {
+                setDataSource(file.absolutePath)
+                if (extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != "yes") throw IOException("That file isn't a video")
+                duration = extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                    ?.let { ((it + 500) / 1000).toInt() }?.takeIf { it > 0 }
+                if (wantFrame) frame = getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            } finally {
+                release()
+            }
+        }
+        return Probed(name, ext, file, duration, frame)
+    }
+
+    /** Copies the video (and a cover frame, if any) into media/. Returns their file names. */
+    private fun store(storage: VaultStorage, id: String, probed: Probed, dir: File): Pair<String, String?> {
+        val mediaDir = storage.mediaDir()
+        val videoName = FileNames.videoFile(id, probed.ext)
+        storage.importFile(probed.file, mediaDir, videoName)
+        val coverName = probed.frame?.let { bmp ->
+            val cover = File(dir, FileNames.coverFile(id))
+            cover.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+            bmp.recycle()
+            FileNames.coverFile(id).also { storage.importFile(cover, mediaDir, it) }
+        }
+        return videoName to coverName
+    }
+
+    /**
+     * Move, not copy: now that the video is safely in media/, remove the original (e.g. the copy
+     * TikTok's "Save video" put in the gallery) so it isn't kept twice.
+     */
+    private fun finishMove(source: Uri, name: String?, success: String): String {
+        val removed = runCatching { DocumentsContract.deleteDocument(context.contentResolver, source) }.getOrDefault(false)
+        return if (removed) success else "$success. The original${name?.let { " ($it)" } ?: ""} couldn't be removed; delete it yourself if you like."
     }
 
     private fun videoExtension(name: String?, mime: String?): String {
