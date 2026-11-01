@@ -1,6 +1,8 @@
 package io.github.audxius.loopkeep.ui
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Build
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
@@ -50,6 +52,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.automirrored.outlined.Notes
@@ -184,6 +187,7 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
                 onEdit = { editing = item },
                 onDelete = { deleting = item },
                 onRetry = { vm.retry(item) },
+                onAttach = { uri -> vm.attachVideo(item, uri) },
                 onCollection = { name -> vm.setCollection(name); vm.back() },
                 onComments = { commentsFor = item },
             )
@@ -231,6 +235,7 @@ private fun FeedPage(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRetry: () -> Unit,
+    onAttach: (android.net.Uri) -> Unit,
     onCollection: (String) -> Unit,
     onComments: () -> Unit,
 ) {
@@ -238,7 +243,7 @@ private fun FeedPage(
         when {
             item.type == PostType.SLIDESHOW.value && item.imageUriList.isNotEmpty() -> Slideshow(item)
             player != null -> VideoSurface(item, player, isCurrent)
-            else -> UnavailableCard(item, onRetry)
+            else -> UnavailableCard(item, onRetry, onAttach)
         }
         Box(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.42f)
@@ -512,8 +517,9 @@ private fun Slideshow(item: VideoEntity) {
 }
 
 @Composable
-private fun UnavailableCard(item: VideoEntity, onRetry: () -> Unit) {
+private fun UnavailableCard(item: VideoEntity, onRetry: () -> Unit, onAttach: (android.net.Uri) -> Unit) {
     val context = LocalContext.current
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onAttach(uri) }
     Box(Modifier.fillMaxSize()) {
         item.coverUri?.let {
             AsyncImage(
@@ -530,14 +536,22 @@ private fun UnavailableCard(item: VideoEntity, onRetry: () -> Unit) {
             StatusPill(statusLabel(item.status), statusColor(item.status))
             Text(
                 when (item.status) {
-                    NoteStatus.UNAVAILABLE.value -> "This post was deleted or made private on TikTok. Its note stays in your archive."
-                    NoteStatus.TEXT_ONLY.value -> "The caption and cover are saved, but the video couldn't be downloaded yet."
+                    NoteStatus.UNAVAILABLE.value -> "This post was deleted or made private on TikTok. Its note stays in your archive. If you have the video file, attach it."
+                    NoteStatus.TEXT_ONLY.value -> "The video couldn't be downloaded. If it's your own private post, save it in TikTok (Share → Save video) and attach the file. The original post date is kept."
                     else -> "The video file is missing from media/."
                 },
                 color = Brand.TextSecondary, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium,
             )
+            GradientButton("Attach video", onClick = { pickVideo.launch(arrayOf("video/*")) }, icon = Icons.Default.VideoFile)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GradientButton("Retry", onClick = onRetry, icon = Icons.Default.Refresh)
+                Row(
+                    Modifier.clip(CircleShape).background(Brand.Surface3).clickable(onClick = onRetry).padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Refresh, null, tint = Brand.TextPrimary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Retry", color = Brand.TextPrimary, fontWeight = FontWeight.SemiBold)
+                }
                 if (item.sourceUrl.isNotBlank()) {
                     Row(
                         Modifier.clip(CircleShape).background(Brand.Surface3)

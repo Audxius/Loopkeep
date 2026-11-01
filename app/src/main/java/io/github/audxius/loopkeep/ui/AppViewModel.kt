@@ -273,6 +273,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Your own most-used tags, for quick re-use. Hashtags from TikTok aren't suggested. */
     fun suggestTags(item: VideoEntity): List<String> = tags.value.map { it.first }.filter { it !in item.tagList }.take(12)
 
+    /** Attaches a video file from the phone (e.g. your own private post, saved from TikTok) to a note. */
+    fun attachVideo(item: VideoEntity, uri: Uri) = viewModelScope.launch {
+        val storage = storageOrComplain() ?: return@launch
+        withBusy("Attaching video…") {
+            _message.value = try {
+                graph.localImport.attach(storage, item, uri)
+            } catch (e: Exception) {
+                "Could not attach: ${e.message}"
+            }
+        }
+    }
+
     fun refreshCreatorInfo() = viewModelScope.launch {
         val posts = videos.all().filter { it.status != io.github.audxius.loopkeep.core.NoteStatus.UNAVAILABLE.value }
         val n = graph.queue.refreshCreatorInfo(posts)
@@ -280,7 +292,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Writes tags and notes back into the markdown file, touching nothing else. */
-    fun saveEdits(item: VideoEntity, newTags: List<String>, newNotes: String, newCollections: List<String> = item.collectionList) = viewModelScope.launch {
+    fun saveEdits(
+        item: VideoEntity,
+        newTags: List<String>,
+        newNotes: String,
+        newCollections: List<String> = item.collectionList,
+        /** Only used when the note has no caption yet (e.g. private posts); an existing caption is never replaced. */
+        newCaption: String = "",
+    ) = viewModelScope.launch {
         val storage = storageOrComplain() ?: return@launch
         try {
             withContext(Dispatchers.IO) {
@@ -289,6 +308,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val cleaned = newTags.mapNotNull { TagSuggester.normalize(it) ?: it.trim().trimStart('#').replace(' ', '_').ifBlank { null } }.distinct()
                 if (cleaned != doc.frontmatter.getList(NoteKeys.TAGS)) doc.frontmatter.setList(NoteKeys.TAGS, cleaned)
                 if (newNotes.trim() != doc.notes().trim()) doc.setNotes(newNotes)
+                if (newCaption.isNotBlank() && doc.caption().isBlank()) doc.fillCaption(newCaption)
                 val cols = newCollections.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                 if (cols != doc.frontmatter.getList(NoteKeys.COLLECTIONS)) {
                     if (cols.isEmpty()) doc.frontmatter.remove(NoteKeys.COLLECTIONS) else doc.frontmatter.setList(NoteKeys.COLLECTIONS, cols)

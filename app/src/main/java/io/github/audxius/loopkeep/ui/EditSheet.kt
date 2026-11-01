@@ -1,5 +1,7 @@
 package io.github.audxius.loopkeep.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -66,6 +69,10 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
     val tags = remember(item.tiktokId) { mutableStateListOf(*item.tagList.toTypedArray()) }
     val collections = remember(item.tiktokId) { mutableStateListOf(*item.collectionList.toTypedArray()) }
     var notes by remember(item.tiktokId) { mutableStateOf(item.notes) }
+    var caption by remember(item.tiktokId) { mutableStateOf("") }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) { vm.attachVideo(item, uri); onDismiss() }
+    }
     val tagSuggestions = remember(item.tiktokId) { vm.suggestTags(item) }
     val allCollections by vm.collections.collectAsStateWithLifecycle()
 
@@ -82,9 +89,24 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
                 Avatar(item.authorHandle.ifBlank { item.author }, 40.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Tags, collections & notes", style = MaterialTheme.typography.titleLarge)
+                    Text("Edit post", style = MaterialTheme.typography.titleLarge)
                     Text(item.noteName, color = Brand.TextTertiary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 }
+                // Save lives in the header so the keyboard never hides it.
+                GradientButton("Save", onClick = {
+                    vm.saveEdits(item, tags.toList(), notes, collections.toList(), caption)
+                    onDismiss()
+                })
+            }
+
+            if (item.caption.isBlank()) {
+                // Private posts come without a caption; let the owner type it. Never shown once a caption exists.
+                Text("Caption", style = MaterialTheme.typography.titleMedium)
+                PlainTextField(
+                    caption, { caption = it }, "TikTok didn't share the caption. Type it here if you like.",
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brand.Surface2),
+                    singleLine = false, fontSize = 15, contentPadding = PaddingValues(14.dp),
+                )
             }
 
             ChipEditor(
@@ -108,17 +130,20 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                GradientButton("Save", onClick = {
-                    vm.saveEdits(item, tags.toList(), notes, collections.toList())
-                    onDismiss()
-                })
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Brand.TextSecondary) }
                 Spacer(Modifier.weight(1f))
+                if (item.status != NoteStatus.FULL.value) {
+                    TextButton(onClick = { pickVideo.launch(arrayOf("video/*")) }) {
+                        Icon(Icons.Default.VideoFile, null, tint = Brand.Peach, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Attach", color = Brand.Peach)
+                    }
+                }
                 if (item.status != NoteStatus.FULL.value) {
                     TextButton(onClick = { vm.retry(item); onDismiss() }) {
                         Icon(Icons.Default.Refresh, null, tint = Brand.Coral, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Retry download", color = Brand.Coral)
+                        Text("Retry", color = Brand.Coral)
                     }
                 }
             }
