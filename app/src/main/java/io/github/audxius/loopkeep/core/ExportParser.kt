@@ -12,7 +12,8 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.zip.ZipInputStream
 
-enum class ExportSource { SAVED, LIKED, OTHER }
+/** OWN: the account owner's own posts (export section "Video"/"Videos"/"Posts"). */
+enum class ExportSource { SAVED, LIKED, OWN, OTHER }
 
 data class ExportEntry(
     val url: String,
@@ -22,9 +23,15 @@ data class ExportEntry(
     val source: ExportSource,
     /** Collection names, if the export says which collection the video is in. */
     val collections: List<String> = emptyList(),
+    /** Own posts: direct download link to the video file (export `VideoLink`), works for private posts. */
+    val mediaUrl: String? = null,
+    /** Own posts: the caption, if the export includes it. */
+    val caption: String? = null,
+    /** Own posts: post time as yyyyMMddHHmmss, used to key posts that have no TikTok link. */
+    val timestamp: String? = null,
 )
 
-data class ExportScan(val entries: List<ExportEntry>) {
+data class ExportScan(val entries: List<ExportEntry>, /** The account's own @handle, from the profile section. */ val ownerHandle: String? = null) {
     fun count(source: ExportSource) = entries.count { it.source == source }
 }
 
@@ -41,12 +48,31 @@ object ExportParser {
     private const val MAX_ZIP_ENTRY_BYTES = 64L * 1024 * 1024
 
     fun parse(bytes: ByteArray, fileName: String = ""): ExportScan {
+        owner = null
         val raw = when {
             isZip(bytes) -> parseZip(bytes)
             else -> parseText(bytes.toString(Charsets.UTF_8), fileName)
         }
-        return ExportScan(dedupe(raw))
+        return ExportScan(dedupe(raw), owner)
     }
+
+    // Set while parsing; the parser is single-threaded per call.
+    @Volatile private var owner: String? = null
+    private val ownerKey = Regex("""^(user ?name|unique ?id)$""", RegexOption.IGNORE_CASE)
+    private val handleValue = Regex("""^@?([A-Za-z0-9._]{2,24})$""")
+    private val captionKey = Regex("""^(title|caption|description|desc|text|video ?description)$""", RegexOption.IGNORE_CASE)
+    private val mediaKey = Regex("""(video|download|media) ?(link|url)""", RegexOption.IGNORE_CASE)
+    private val anyUrl = Regex("""https?://[^\s"'<>]+""")
+    private val dateTime = Regex("""(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?""")
+
+    /** "2023-05-04 18:22:10" → "20230504182210". */
+    fun timestampOf(text: String): String? = dateTime.find(text)?.destructured?.let { (y, mo, d, h, mi, s) ->
+        "%s%02d%02d%02d%02d%02d".format(y, mo.toInt(), d.toInt(), h.toInt(), mi.toInt(), s.ifEmpty { "0" }.toInt())
+    }
+
+    /** A direct file link (TikTok CDN), not a post page. */
+    private fun isMediaUrl(url: String): Boolean =
+        !TikTokUrls.isPostUrl(url) && (url.contains(".mp4") || url.contains("tiktokcdn") || url.contains("/video/tos/") || Regex("""//v\d+[-.]""").containsMatchIn(url))
 
     fun parseText(text: String, context: String = ""): List<ExportEntry> {
         val trimmed = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
@@ -72,12 +98,16 @@ object ExportParser {
 
     private fun better(a: ExportEntry, b: ExportEntry): ExportEntry {
         val collections = (a.collections + b.collections).distinct()
+        // Never lose an own post's file link or caption when another section lists the same video.
+        fun ExportEntry.keepExtras() = copy(
+            mediaUrl = mediaUrl ?: a.mediaUrl ?: b.mediaUrl, caption = caption ?: a.caption ?: b.caption, timestamp = timestamp ?: a.timestamp ?: b.timestamp,
+        )
         if (a.source != b.source) {
             val winner = if (a.source.ordinal <= b.source.ordinal) a.withDate(b) else b.withDate(a)
-            return winner.copy(collections = collections)
+            return winner.copy(collections = collections).keepExtras()
         }
         val date = listOfNotNull(a.date, b.date).minOrNull()
-        return a.copy(date = date, collections = collections)
+        return a.copy(date = date, collections = collections).keepExtras()
     }
 
     private fun ExportEntry.withDate(other: ExportEntry) = if (date == null) copy(date = other.date) else this
@@ -91,6 +121,8 @@ object ExportParser {
     fun classify(path: List<String>): ExportSource {
         for (segment in path) {
             val s = segment.lowercase().replace('_', ' ')
+            // The owner's own posts: "Video" → "Videos" → "VideoList", or "Post" → "Posts".
+            if (Regex("""^(videos?|posts?|video ?list|my videos|your videos|your posts|uploads?)$""").matches(s.trim())) return ExportSource.OWN
             if (Regex("""(^|[^a-z])like|likelist|liked""").containsMatchIn(s) && !s.contains("favorite video")) return ExportSource.LIKED
             if (Regex("""favou?rite|collect|saved|bookmark""").containsMatchIn(s)) return ExportSource.SAVED
             if (Regex("""brows|watch|history|share|post|upload|comment|message|chat|sound|effect|hashtag""").containsMatchIn(s)) return ExportSource.OTHER
@@ -102,7 +134,7 @@ object ExportParser {
 
     private fun parseJson(root: JsonElement, context: String): List<ExportEntry> {
         val out = mutableListOf<ExportEntry>()
-        walk(root, if (context.isBlank()) emptyList() else listOf(context), out, null)
+        walk(root, context.split('/').filter { it.isNotBlank() }, out, null)
         return out
     }
 
@@ -118,14 +150,20 @@ object ExportParser {
                     if (collectionNameKey.matches(k)) (v as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.ifEmpty { null } else null
                 } else null
                 val current = named ?: collection
-                val urls = el.entries.mapNotNull { (_, v) -> (v as? JsonPrimitive)?.takeIf { it.isString }?.content }
+                val strings = el.entries.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { k to it } }
+                if (owner == null && path.any { it.contains("profile", ignoreCase = true) }) {
+                    strings.firstOrNull { (k, _) -> ownerKey.matches(k) }?.second?.trim()?.let { handleValue.find(it)?.groupValues?.get(1) }?.let { owner = it }
+                }
+                val urls = strings.map { it.second }
                     .flatMap { TikTokUrls.findUrls(it) }
                     .filter { TikTokUrls.isPostUrl(it) }
-                if (urls.isNotEmpty()) {
+                val source = classify(path)
+                if (source == ExportSource.OWN) {
+                    ownPost(strings, urls)?.let { out += it }
+                } else if (urls.isNotEmpty()) {
                     val date = el.entries.firstNotNullOfOrNull { (k, v) ->
                         if (Regex("date|time|created|saved", RegexOption.IGNORE_CASE).containsMatchIn(k)) primitiveDate(v) else null
                     } ?: el.values.firstNotNullOfOrNull { primitiveDate(it) }
-                    val source = classify(path)
                     urls.forEach { out += ExportEntry(it, TikTokUrls.extractVideoId(it), date, source, listOfNotNull(current)) }
                 }
                 for ((k, v) in el) {
@@ -147,6 +185,29 @@ object ExportParser {
         }
     }
 
+    /**
+     * One of the owner's own posts. Older exports give `Date` + `VideoLink` (a direct, expiring file
+     * link that works for private posts too); newer ones may give a post `Link`. Both are kept.
+     */
+    private fun ownPost(fields: List<Pair<String, String>>, postUrls: List<String>): ExportEntry? {
+        val media = fields.firstNotNullOfOrNull { (k, v) -> v.trim().takeIf { mediaKey.containsMatchIn(k) && it.startsWith("http") && !TikTokUrls.isPostUrl(it) } }
+            ?: fields.flatMap { anyUrl.findAll(it.second).map { m -> m.value } }.firstOrNull { isMediaUrl(it) }
+        val post = postUrls.firstOrNull()
+        if (media == null && post == null) return null
+        val dateText = fields.firstOrNull { (k, _) -> Regex("date|time|created", RegexOption.IGNORE_CASE).containsMatchIn(k) }?.second
+            ?: fields.firstOrNull { findDate(it.second) != null }?.second
+        val caption = fields.firstOrNull { (k, _) -> captionKey.matches(k.trim()) }?.second?.trim()?.ifEmpty { null }
+        return ExportEntry(
+            url = post ?: media!!,
+            videoId = post?.let { TikTokUrls.extractVideoId(it) },
+            date = dateText?.let { findDate(it) },
+            source = ExportSource.OWN,
+            mediaUrl = media,
+            caption = caption,
+            timestamp = dateText?.let { timestampOf(it) },
+        )
+    }
+
     private fun primitiveDate(v: JsonElement): LocalDate? {
         val p = v as? JsonPrimitive ?: return null
         if (p.isString) return findDate(p.content)
@@ -163,22 +224,45 @@ object ExportParser {
         var collection: String? = null
         val collectionLine = Regex("""^collection(?: name)?\s*[:\-]\s*(.+)$""", RegexOption.IGNORE_CASE)
         var lastDate: LocalDate? = null
+        var lastDateText: String? = null
         var lastDateLine = -10
+        val contextPath = context.split('/').filter { it.isNotBlank() }
+        val profileFile = context.contains("profile", ignoreCase = true)
         for ((i, rawLine) in lines.withIndex()) {
             val line = rawLine.trim()
             if (line.isEmpty()) continue
             collectionLine.find(line)?.let { collection = it.groupValues[1].trim(); continue }
+            if (owner == null && (profileFile || heading.contains("profile", ignoreCase = true))) {
+                Regex("""^user ?name\s*:\s*@?([A-Za-z0-9._]{2,24})\s*$""", RegexOption.IGNORE_CASE).find(line)?.let { owner = it.groupValues[1]; continue }
+            }
+            val source = classify(contextPath + listOfNotNull(heading.ifBlank { null }))
+            if (source == ExportSource.OWN) {
+                // "Date: …" then "Video Link: https://…" (a direct file link) or a post link.
+                val links = anyUrl.findAll(line).map { it.value.trimEnd('.', ',') }.filter { TikTokUrls.isPostUrl(it) || isMediaUrl(it) }.toList()
+                if (links.isNotEmpty()) {
+                    val dateText = lastDateText.takeIf { i - lastDateLine <= 3 } ?: line
+                    val post = links.firstOrNull { TikTokUrls.isPostUrl(it) }
+                    val media = links.firstOrNull { isMediaUrl(it) }
+                    out += ExportEntry(
+                        post ?: media!!, post?.let { TikTokUrls.extractVideoId(it) }, findDate(dateText), ExportSource.OWN,
+                        mediaUrl = media, timestamp = timestampOf(dateText),
+                    )
+                    lastDate = null
+                    lastDateText = null
+                    continue
+                }
+            }
             val urls = TikTokUrls.findUrls(line).filter { TikTokUrls.isPostUrl(it) }
             val lineDate = findDate(line)
             if (urls.isNotEmpty()) {
                 // Dates usually precede the link ("Date: …" then "Link: …"), occasionally share the line.
                 val date = lineDate ?: lastDate.takeIf { i - lastDateLine <= 3 }
                     ?: lines.getOrNull(i + 1)?.let { findDate(it) }
-                val source = classify(listOfNotNull(context.ifBlank { null }, heading.ifBlank { null }))
                 urls.forEach { out += ExportEntry(it, TikTokUrls.extractVideoId(it), date, source, listOfNotNull(collection)) }
                 lastDate = null
             } else if (lineDate != null) {
                 lastDate = lineDate
+                lastDateText = line
                 lastDateLine = i
             } else if (line.length <= 80 && line.any { it.isLetter() } && !line.contains("://")) {
                 heading = line
@@ -213,7 +297,7 @@ object ExportParser {
                     if (!entry.isDirectory && name.substringAfterLast('.').lowercase() in setOf("json", "txt", "html", "htm")) {
                         val content = zip.readUpTo(MAX_ZIP_ENTRY_BYTES.toInt())
                         // Folder and file names carry the section ("Activity/Favorite Videos.txt").
-                        val context = name.substringBeforeLast('.').replace('/', ' ')
+                        val context = name.substringBeforeLast('.')
                         out += parseText(content.toString(Charsets.UTF_8), context)
                     }
                 }
