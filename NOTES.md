@@ -115,10 +115,11 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - Room schema v3 adds `creatorComments` and `authorLink` with a migration (re-reads notes once).
 
 **Collections**
-- TikTok's data export most likely does **not** contain collections: third-party write-ups say favourites are one flat list. So collections come from:
+- **Confirmed with a real export (2026-11-01):** TikTok's export lists collection *names* only (`Likes and Favorites → Favorite Collection → FavoriteCollectionList[] → {Date, FavoriteCollection}`); `Likes and Favorites → Collection` is `{}` and favourites are one flat list. Which video is in which collection is not exported. For a private account, the unsigned `api/user/collection_list` answers `total: 0`, and logging in is out of scope. So collections come from:
   1. shared collection links (`tiktok.com/@user/collection/<name>-<id>`), listed with yt-dlp's `tiktok:collection` extractor;
   2. the export, if a future version names collections (the parser picks up `CollectionName`/`name` fields or map keys under a collections section, and `Collection: X` lines in TXT);
-  3. the edit sheet, by hand.
+  3. the edit sheet, by hand, or in bulk: long-press in the grid to select posts, then *Collection*.
+- Names listed by the export (or typed in the picker) are kept in app settings (`known_collections`) so they appear as empty collections until posts are filed into them. Membership itself only lives in the notes.
 - **Listing collections is unreliable.** On 2026-10-29 yt-dlp returned zero entries for its own test collections, and TikTok's `api/collection/item_list` answered `statusCode 100001` to unsigned requests. An empty listing is reported as a readable failure in the queue, never silently accepted.
 - Stored as `collections: [A, B]` in the note (managed key, unioned on merge) and as `"\nA\nB\n"` in the index for exact `LIKE` matching. Room schema v2 adds the columns with a real migration, so the queue survives the update.
 - A post that's already saved only gets the collection added to its note; nothing is downloaded again.

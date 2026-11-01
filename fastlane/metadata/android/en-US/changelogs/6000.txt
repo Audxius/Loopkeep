@@ -1,0 +1,2 @@
+• Your TikTok collections now come over from the data export (TikTok only exports their names, so they start empty)
+• Long-press posts in the library to select several, then add them to a collection or delete them at once

@@ -49,11 +49,12 @@ Requires Android 8.0 or newer on a 64-bit phone.
 2. **Bring your saves over**, any of these ways:
    - **Import your TikTok data export.** In TikTok: *Profile → ☰ → Settings → Account → Download your data → JSON*. Once it's ready, download it, then in Loopkeep tap *Import TikTok export* and pick the file (the ZIP as downloaded works too). Favourites are imported; liked videos are optional.
    - **Share** any video or photo post to *Save to Loopkeep* from TikTok's share menu.
+   - **Collections.** TikTok's export only has your collection names, not which videos are in them, so they're added empty. To fill one: long-press a post in the grid to start selecting, tap the others that belong together, then *Collection* → pick it. The same picker takes posts out again.
    - **Share a collection.** In TikTok, make the collection public and share its link to Loopkeep. Its posts are saved and filed into that collection. (TikTok often refuses to list collections to apps; if so, Loopkeep tells you, and you can add the videos one by one and file them in the edit sheet.)
    - **Paste** links in Settings.
 3. **Watch.** Tap a thumbnail or *Play*. Swipe up/down, tap to pause, drag the thin bar to seek, tap the caption to read all of it. The feed follows your current search, filters and collection.
 4. **Creators.** Tap the creator's name to open their TikTok profile, or their bio link right under it. If they commented on the post, the *Creator* button shows their comments and replies.
-5. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press a thumbnail or use *Delete* in the feed to remove a post and its files.
+5. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press thumbnails to select several, then file them into a collection or delete them; *Delete* in the feed removes one post.
 
 ### Your own videos, including "Only me" ones
 
