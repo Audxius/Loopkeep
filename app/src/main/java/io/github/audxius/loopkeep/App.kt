@@ -6,6 +6,7 @@ import android.net.Uri
 import io.github.audxius.loopkeep.data.AppDatabase
 import io.github.audxius.loopkeep.data.Settings
 import io.github.audxius.loopkeep.index.Indexer
+import io.github.audxius.loopkeep.pipeline.LocalVideoImport
 import io.github.audxius.loopkeep.pipeline.Processor
 import io.github.audxius.loopkeep.pipeline.QueueRepository
 import io.github.audxius.loopkeep.pipeline.YtDlp
@@ -33,6 +34,7 @@ class AppGraph(private val app: Application) {
     val ytDlp = YtDlp(app)
     val processor = Processor(app, db, indexer, ytDlp)
     val queue = QueueRepository(app, db)
+    val localImport = LocalVideoImport(app, indexer)
 
     private var cachedStorage: VaultStorage? = null
 

@@ -130,6 +130,9 @@ class Processor(
             val status = when {
                 videoFile != null -> NoteStatus.FULL
                 images.isNotEmpty() -> NoteStatus.FULL
+                // Private ("Only me") posts exist but need the owner's login: keep a partial note the user
+                // can complete by attaching the file saved from TikTok.
+                page != null && page.isPrivate -> NoteStatus.TEXT_ONLY
                 page != null && !page.isAvailable -> NoteStatus.UNAVAILABLE
                 // Text-only needs at least a caption or a cover; otherwise try again later.
                 info != null || page != null || oembed != null -> NoteStatus.TEXT_ONLY
@@ -168,7 +171,7 @@ class Processor(
                 sourceUrl = TikTokUrls.canonicalUrl(id, handle, isPhoto || images.isNotEmpty()),
                 author = info?.author ?: page?.author ?: oembed?.author,
                 authorHandle = handle,
-                posted = info?.posted ?: page?.posted,
+                posted = info?.posted ?: page?.posted ?: TikTokUrls.postedFromId(id),
                 saved = item.savedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now(),
                 collections = collections,
                 status = status,
@@ -185,7 +188,11 @@ class Processor(
             )
             val noteName = writeNote(storage, meta, existing?.noteDocId, noteNames)
             val message = when (status) {
-                NoteStatus.TEXT_ONLY -> "Text only: ${ytError ?: "no video file"}"
+                NoteStatus.TEXT_ONLY -> if (page?.isPrivate == true) {
+                    "Private on TikTok. Save it from TikTok (Share → Save video), then open it here and tap Attach video."
+                } else {
+                    "Text only: ${ytError ?: "no video file"}"
+                }
                 NoteStatus.UNAVAILABLE -> "Unavailable: ${page?.statusMessage ?: "removed or private"}"
                 NoteStatus.FULL -> null
             }
