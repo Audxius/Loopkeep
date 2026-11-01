@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdateAlt
@@ -72,6 +74,9 @@ fun SettingsScreen(vm: AppViewModel) {
     val snackbar = remember { SnackbarHostState() }
     var autoUpdate by remember { mutableStateOf(vm.autoUpdateYtDlp) }
     var link by rememberSaveable { mutableStateOf("") }
+    var adding by remember { mutableStateOf<Uri?>(null) }
+    var showInGallery by remember { mutableStateOf(vm.showInGallery) }
+    adding?.let { AddVideoDialog(vm, it, onDismiss = { adding = null }) }
     MessageEffect(vm, snackbar)
     ImportDialog(vm)
 
@@ -81,6 +86,7 @@ fun SettingsScreen(vm: AppViewModel) {
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? -> if (uri != null) vm.setFolder(uri) }
     val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) vm.readExport(uri) }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) adding = uri }
 
     Box(Modifier.fillMaxSize().background(Brand.Background)) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -122,6 +128,12 @@ fun SettingsScreen(vm: AppViewModel) {
                     ) { Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary) }
                     RowDivider()
                     SettingRow(
+                        Icons.Default.VideoFile, "Add video from phone",
+                        "For your own \"Only me\" videos, which TikTok gives no link for: save it in TikTok (Share → Save video), then pick it here and set the date you posted it. The file is moved, not copied.",
+                        onClick = { pickVideo.launch(arrayOf("video/*")) }, iconTint = Brand.Gold,
+                    ) { Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary) }
+                    RowDivider()
+                    SettingRow(
                         Icons.Outlined.CollectionsBookmark, "Import a collection",
                         "In TikTok, make the collection public and share its link to Loopkeep. Posts are filed into that collection.",
                         iconTint = Brand.Peach,
@@ -155,6 +167,17 @@ fun SettingsScreen(vm: AppViewModel) {
                     RowDivider()
                     SettingRow(Icons.AutoMirrored.Filled.DriveFileMove, "Change folder", onClick = { pickFolder.launch(null) }) {
                         Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary)
+                    }
+                    RowDivider()
+                    SettingRow(
+                        Icons.Default.PhotoLibrary, "Show in phone gallery",
+                        "Off: videos are only seen in Loopkeep and Obsidian (a hidden .nomedia file keeps galleries out).",
+                        iconTint = Brand.Teal,
+                    ) {
+                        Switch(
+                            showInGallery, { showInGallery = it; vm.setShowInGallery(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Brand.Coral, checkedThumbColor = androidx.compose.ui.graphics.Color.White),
+                        )
                     }
                     RowDivider()
                     SettingRow(

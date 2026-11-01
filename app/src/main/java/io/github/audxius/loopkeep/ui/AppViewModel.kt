@@ -125,6 +125,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .onFailure { _message.value = "Could not read the folder: ${it.message}" }
         repairEmptyNotes()
         removeAutoTags()
+        runCatching { graph.applyGalleryVisibility() }
         if (graph.db.queue().activeCount() > 0) QueueWorker.start(getApplication())
     }
 
@@ -202,6 +203,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             withBusy("Reading folder…") {
                 withContext(Dispatchers.IO) { storage.notesDir(); storage.mediaDir() }
                 val r = graph.indexer.rescan(storage, full = true)
+                runCatching { graph.applyGalleryVisibility() }
                 _message.value = if (r.notes > 0) "Found ${r.notes - r.skipped} saved videos in this folder" else "Folder ready"
             }
         } catch (e: Exception) {
@@ -241,10 +243,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun confirmImport(includeLiked: Boolean) = viewModelScope.launch {
+    fun confirmImport(includeLiked: Boolean, includeOwn: Boolean = false) = viewModelScope.launch {
         val pending = _pendingImport.value ?: return@launch
         _pendingImport.value = null
-        val r = graph.queue.enqueueExport(pending.scan.entries, includeLiked)
+        val owner = pending.scan.ownerHandle ?: graph.settings.ownHandle
+        pending.scan.ownerHandle?.let { graph.settings.ownHandle = it }
+        val r = graph.queue.enqueueExport(pending.scan.entries, includeLiked, includeOwn, owner)
         _message.value = "Import: ${r.summary}"
     }
 
@@ -281,6 +285,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 graph.localImport.attach(storage, item, uri)
             } catch (e: Exception) {
                 "Could not attach: ${e.message}"
+            }
+        }
+    }
+
+    val ownHandle: String? get() = graph.settings.ownHandle
+    val showInGallery: Boolean get() = graph.settings.showInGallery
+
+    fun setShowInGallery(show: Boolean) = viewModelScope.launch {
+        graph.settings.showInGallery = show
+        runCatching { graph.applyGalleryVisibility() }
+            .onFailure { _message.value = "Could not update the folder: ${it.message}" }
+        _message.value = if (show) "Videos will show in your gallery" else "Videos hidden from your gallery (Obsidian and Loopkeep only)"
+    }
+
+    fun fileDate(uri: Uri): java.time.LocalDate? = graph.localImport.fileDate(uri)
+
+    /** A video from the phone as a new post, e.g. your own "Only me" videos, which have no link. */
+    fun addLocalVideo(uri: Uri, posted: java.time.LocalDate, caption: String, handle: String?) = viewModelScope.launch {
+        val storage = storageOrComplain() ?: return@launch
+        val h = handle?.trim()?.removePrefix("@")?.ifBlank { null }
+        h?.let { graph.settings.ownHandle = it }
+        withBusy("Adding video…") {
+            _message.value = try {
+                graph.localImport.addNew(storage, uri, posted, caption, h)
+            } catch (e: Exception) {
+                "Could not add: ${e.message}"
             }
         }
     }

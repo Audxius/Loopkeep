@@ -515,6 +515,8 @@ fun ImportDialog(vm: AppViewModel) {
     val pending by vm.pendingImport.collectAsStateWithLifecycle()
     val p = pending ?: return
     var includeLiked by remember(p) { mutableStateOf(false) }
+    var includeOwn by remember(p) { mutableStateOf(true) }
+    val own = p.scan.count(ExportSource.OWN)
     val saved = p.scan.count(ExportSource.SAVED)
     val liked = p.scan.count(ExportSource.LIKED)
     val other = p.scan.count(ExportSource.OTHER)
@@ -528,6 +530,16 @@ fun ImportDialog(vm: AppViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StatTile("$saved", "Saved", Brand.Teal, Modifier.weight(1f))
                     StatTile("$liked", "Liked", Brand.Peach, Modifier.weight(1f))
+                    if (own > 0) StatTile("$own", "Yours", Brand.Gold, Modifier.weight(1f))
+                }
+                if (own > 0) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { includeOwn = !includeOwn }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(includeOwn, { includeOwn = it }, colors = CheckboxDefaults.colors(checkedColor = Brand.Coral))
+                        Text("Save my own $own posts, including \"Only me\" ones, with their original dates")
+                    }
                 }
                 if (withCollections > 0) Text("$withCollections are in collections; they'll be grouped the same way.", color = Brand.TextSecondary)
                 if (liked > 0) {
@@ -544,8 +556,8 @@ fun ImportDialog(vm: AppViewModel) {
             }
         },
         confirmButton = {
-            val n = saved + if (includeLiked) liked else 0
-            GradientButton("Save $n", onClick = { vm.confirmImport(includeLiked) }, enabled = n > 0)
+            val n = saved + (if (includeLiked) liked else 0) + (if (includeOwn) own else 0)
+            GradientButton("Save $n", onClick = { vm.confirmImport(includeLiked, includeOwn) }, enabled = n > 0)
         },
         dismissButton = { TextButton(onClick = vm::cancelImport) { Text("Cancel", color = Brand.TextSecondary) } },
     )
