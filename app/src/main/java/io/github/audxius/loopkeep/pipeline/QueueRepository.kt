@@ -40,6 +40,9 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
         val date: String?,
         val force: Boolean,
         val collections: List<String> = emptyList(),
+        val mediaUrl: String? = null,
+        val caption: String? = null,
+        val authorHandle: String? = null,
     )
 
     /** Post links and collection links, e.g. from the share sheet. */
@@ -55,16 +58,26 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
             },
         )
 
-    suspend fun enqueueExport(entries: List<ExportEntry>, includeLiked: Boolean): EnqueueResult =
+    suspend fun enqueueExport(entries: List<ExportEntry>, includeLiked: Boolean, includeOwn: Boolean = false, ownerHandle: String? = null): EnqueueResult =
         enqueue(
-            entries.filter { it.source == ExportSource.SAVED || (includeLiked && it.source == ExportSource.LIKED) }
+            entries.filter { it.source == ExportSource.SAVED || (includeLiked && it.source == ExportSource.LIKED) || (includeOwn && it.source == ExportSource.OWN) }
                 // Oldest first, so the queue roughly follows the order they were saved.
                 .sortedBy { it.date }
                 .map {
-                    val src = if (it.source == ExportSource.SAVED) QueueSource.EXPORT_SAVED else QueueSource.EXPORT_LIKED
-                    Request(it.url, it.videoId, src, it.date?.toString(), false, it.collections)
+                    when (it.source) {
+                        ExportSource.OWN -> Request(
+                            it.url, it.videoId ?: ownId(it), QueueSource.EXPORT_OWN, it.date?.toString(), false, it.collections,
+                            mediaUrl = it.mediaUrl, caption = it.caption, authorHandle = ownerHandle,
+                        )
+                        ExportSource.SAVED -> Request(it.url, it.videoId, QueueSource.EXPORT_SAVED, it.date?.toString(), false, it.collections)
+                        else -> Request(it.url, it.videoId, QueueSource.EXPORT_LIKED, it.date?.toString(), false, it.collections)
+                    }
                 },
         )
+
+    /** Key for an own post that has no TikTok link: its post time, or a hash of the file link. */
+    private fun ownId(e: ExportEntry): String =
+        "own-" + (e.timestamp ?: Integer.toHexString(e.url.substringBefore('?').hashCode()))
 
     /** The posts of a shared collection link, after yt-dlp listed them. */
     suspend fun enqueueCollection(urls: List<String>, name: String): EnqueueResult =
@@ -88,7 +101,10 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
                 when (QueuePolicy.decide(note?.status?.let(NoteStatus::from), existing?.state, r.force)) {
                     Decision.ADD -> {
                         db.queue().insert(
-                            QueueItem(url = r.url, tiktokId = r.id, source = r.source, savedDate = r.date, force = r.force, collections = collections),
+                            QueueItem(
+                                url = r.url, tiktokId = r.id, source = r.source, savedDate = r.date, force = r.force, collections = collections,
+                                mediaUrl = r.mediaUrl, caption = r.caption, authorHandle = r.authorHandle,
+                            ),
                         )
                         added++
                     }

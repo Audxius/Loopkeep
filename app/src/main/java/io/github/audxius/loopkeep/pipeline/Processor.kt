@@ -61,6 +61,8 @@ class Processor(
 
     suspend fun process(item: QueueItem, storage: VaultStorage, noteNames: MutableSet<String>): Outcome = withContext(Dispatchers.IO) {
         lowStorageReason()?.let { return@withContext Outcome.Retry(it, minDelayMs = 30 * 60_000L) }
+        // Own post from the export with no TikTok link: only the direct file link exists.
+        if (item.tiktokId?.startsWith("own-") == true) return@withContext processOwnFile(item, storage, noteNames)
 
         // 1. Resolve to an ID and canonical URL.
         var url = item.url.trim()
@@ -104,8 +106,12 @@ class Processor(
                 null
             }
             val info = yt?.infoJson?.let { YtDlpInfoParser.parse(it) }
-            val videoFile = yt?.mediaFile?.takeIf { info?.hasVideo != false && it.extension.lowercase() in VIDEO_EXTS }
+            var videoFile = yt?.mediaFile?.takeIf { info?.hasVideo != false && it.extension.lowercase() in VIDEO_EXTS }
             val audioFile = yt?.mediaFile?.takeIf { videoFile == null && it.extension.lowercase() in AUDIO_EXTS }
+            // Own posts: TikTok won't serve private ones, but the export's direct file link may still work.
+            if (videoFile == null && audioFile == null && item.mediaUrl != null) {
+                videoFile = downloadDirect(item.mediaUrl, File(tmp, "$id-direct.mp4")).getOrNull()
+            }
 
             // 3. Page data: needed for slideshows and as the fallback when yt-dlp failed.
             var pageError: String? = null
@@ -160,8 +166,8 @@ class Processor(
             }
 
             // 6. The note.
-            val caption = info?.caption ?: page?.caption ?: oembed?.caption ?: ""
-            val handle = info?.authorHandle ?: page?.authorHandle ?: oembed?.authorHandle ?: handleHint
+            val caption = info?.caption ?: page?.caption ?: oembed?.caption ?: item.caption ?: ""
+            val handle = info?.authorHandle ?: page?.authorHandle ?: oembed?.authorHandle ?: handleHint ?: item.authorHandle
             // Extras: the creator's profile (bio link) and their comments. Failures here never fail the item.
             val profile = handle?.let { fetchProfile(it) }
             val authorUid = info?.authorUid ?: page?.authorUid ?: profile?.uid
@@ -237,6 +243,85 @@ class Processor(
         if (!NoteWriter.addCollections(doc.frontmatter, collections)) return
         storage.writeText(noteDocId, doc.render())
         storage.info(noteDocId)?.let { indexer.indexNote(storage, it) }
+    }
+
+    /** Downloads a direct video file link (from the export) and checks it really is a video. */
+    private fun downloadDirect(url: String, target: File): Result<File> = runCatching {
+        target.parentFile?.mkdirs()
+        Http.download(url, target, maxBytes = 2L * 1024 * 1024 * 1024)
+        val isVideo = MediaMetadataRetriever().run {
+            try {
+                setDataSource(target.absolutePath)
+                extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes"
+            } finally {
+                release()
+            }
+        }
+        if (!isVideo) throw IOException("The link didn't return a video")
+        target
+    }
+
+    /**
+     * An own post from the export that has no TikTok link: download the file from the export's
+     * direct link. Those links expire a few days after the export is generated.
+     */
+    private suspend fun processOwnFile(item: QueueItem, storage: VaultStorage, noteNames: MutableSet<String>): Outcome {
+        val id = item.tiktokId!!
+        val existing = db.videos().byTiktokId(id)
+        if (existing != null && existing.status == NoteStatus.FULL.value && !item.force) {
+            return Outcome.Done(NoteStatus.FULL, existing.noteName, "Already saved")
+        }
+        val url = item.mediaUrl ?: return Outcome.Fail("No download link for this post in the export")
+        val tmp = File(context.cacheDir, "dl/$id")
+        tmp.deleteRecursively()
+        try {
+            val video = downloadDirect(url, File(tmp, "$id.mp4")).getOrElse { e ->
+                return if (e is HttpStatusException && e.code in 400..499) {
+                    Outcome.Fail(
+                        "The export's download link has expired (HTTP ${e.code}). Request a fresh export and import it right away, " +
+                            "or use Settings → Add video from phone.",
+                    )
+                } else {
+                    Outcome.Retry(e.message ?: e.toString())
+                }
+            }
+            val duration = runCatching {
+                MediaMetadataRetriever().run {
+                    try {
+                        setDataSource(video.absolutePath)
+                        extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { ((it + 500) / 1000).toInt() }
+                    } finally {
+                        release()
+                    }
+                }
+            }.getOrNull()
+            val mediaDir = storage.mediaDir()
+            val videoName = FileNames.videoFile(id)
+            storage.importFile(video, mediaDir, videoName)
+            val coverName = fetchCover(null, null, null, video, File(tmp, "cover.jpg"))?.let {
+                FileNames.coverFile(id).also { name -> storage.importFile(it, mediaDir, name) }
+            }
+            val posted = item.savedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val handle = item.authorHandle
+            val meta = VideoMeta(
+                tiktokId = id,
+                sourceUrl = "",
+                author = handle,
+                authorHandle = handle,
+                posted = posted,
+                // Your own posts sort by when you posted them.
+                saved = posted ?: LocalDate.now(),
+                status = NoteStatus.FULL,
+                durationSeconds = duration,
+                videoFile = videoName,
+                coverFile = coverName,
+                caption = item.caption.orEmpty(),
+            )
+            val noteName = writeNote(storage, meta, existing?.noteDocId, noteNames)
+            return Outcome.Done(NoteStatus.FULL, noteName, "Your post from ${posted ?: "the export"}")
+        } finally {
+            tmp.deleteRecursively()
+        }
     }
 
     // Creator profiles are fetched once per handle per hour; a batch often has many posts per creator.

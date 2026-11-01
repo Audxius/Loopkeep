@@ -31,6 +31,16 @@ class Settings(context: Context) {
         get() = prefs.getLong(KEY_YTDLP_CHECK, 0)
         set(value) = prefs.edit { putLong(KEY_YTDLP_CHECK, value) }
 
+    /** Off by default: the folder is an Obsidian vault, not a camera roll (a .nomedia file hides media/). */
+    var showInGallery: Boolean
+        get() = prefs.getBoolean(KEY_GALLERY, false)
+        set(value) = prefs.edit { putBoolean(KEY_GALLERY, value) }
+
+    /** The user's own @handle (from the export, or typed when adding a video from the phone). */
+    var ownHandle: String?
+        get() = prefs.getString(KEY_OWN_HANDLE, null)
+        set(value) = prefs.edit { putString(KEY_OWN_HANDLE, value) }
+
     /** One-time removal of the hashtag tags v0.1–v0.2 wrote automatically. */
     var autoTagsCleaned: Boolean
         get() = prefs.getBoolean(KEY_AUTO_TAGS_CLEANED, false)
@@ -47,5 +57,7 @@ class Settings(context: Context) {
         const val KEY_YTDLP_CHECK = "ytdlp_check"
         const val KEY_YTDLP_AUTO = "ytdlp_auto"
         const val KEY_AUTO_TAGS_CLEANED = "auto_tags_cleaned"
+        const val KEY_GALLERY = "show_in_gallery"
+        const val KEY_OWN_HANDLE = "own_handle"
     }
 }

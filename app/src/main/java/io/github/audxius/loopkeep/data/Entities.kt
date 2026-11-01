@@ -77,6 +77,8 @@ object QueueState {
 object QueueSource {
     const val EXPORT_SAVED = "export-saved"
     const val EXPORT_LIKED = "export-liked"
+    const val EXPORT_OWN = "export-own"
+    const val PHONE = "phone"
     const val SHARE = "share"
     const val MANUAL = "manual"
     const val RETRY = "retry"
@@ -103,6 +105,10 @@ data class QueueItem(
     val force: Boolean = false,
     /** Newline-separated collection names to put the post in. */
     val collections: String? = null,
+    /** Own posts from the export: direct file link, caption and the owner's handle. */
+    val mediaUrl: String? = null,
+    val caption: String? = null,
+    val authorHandle: String? = null,
     @ColumnInfo(defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val updatedAt: Long = System.currentTimeMillis(),
 )
