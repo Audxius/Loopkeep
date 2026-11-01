@@ -1,3 +1,3 @@
-• Sync collections from TikTok: sign in once and Loopkeep sorts your saved videos into your TikTok collections automatically, downloading any that are missing
+• Sync collections from TikTok: sign in once and Loopkeep sorts your saved videos into your TikTok collections automatically, downloading any that are missing. Accounts made with Google sign in with the QR code and the TikTok app
 • Collection names also come over from the data export
 • Long-press posts in the library to select several, then add them to a collection or delete them at once
