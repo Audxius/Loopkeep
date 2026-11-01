@@ -1,2 +1,3 @@
-• Your TikTok collections now come over from the data export (TikTok only exports their names, so they start empty)
+• Sync collections from TikTok: sign in once and Loopkeep sorts your saved videos into your TikTok collections automatically, downloading any that are missing
+• Collection names also come over from the data export
 • Long-press posts in the library to select several, then add them to a collection or delete them at once
