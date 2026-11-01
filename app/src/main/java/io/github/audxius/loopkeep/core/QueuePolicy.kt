@@ -28,8 +28,10 @@ object QueuePolicy {
         force -> if (queueState != null) Decision.REQUEUE else Decision.ADD
         noteStatus == NoteStatus.FULL -> Decision.SKIP_ALREADY_SAVED
         queueState == "failed" -> Decision.REQUEUE
+        // Done before, but the note is gone (deleted, or removed from the folder): importing it again brings it back.
+        noteStatus == null && queueState == "done" -> Decision.REQUEUE
         // Text-only/unavailable results stay as they are until the user asks for a retry.
-        noteStatus != null || queueState == "done" -> Decision.SKIP_ALREADY_TRIED
+        noteStatus != null -> Decision.SKIP_ALREADY_TRIED
         else -> Decision.ADD
     }
 }

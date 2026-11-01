@@ -30,11 +30,15 @@ data class EnqueueResult(
             if (collectionUpdates > 0) add("$collectionUpdates added to collection")
             if (alreadySaved > 0) add("$alreadySaved already saved")
             if (alreadyQueued > 0) add("$alreadyQueued already in queue")
-            if (skipped > 0) add("$skipped skipped")
+            if (skipped > 0) add("$skipped kept as partial or gone (open one and tap Retry)")
         }.joinToString(", ")
 }
 
 class QueueRepository(private val context: Context, private val db: AppDatabase) {
+
+    private companion object {
+        val OWN_SOURCES = setOf(QueueSource.PROFILE, QueueSource.EXPORT_OWN)
+    }
 
     private data class Request(
         val url: String,
@@ -106,9 +110,12 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
             },
         )
 
-    /** Re-download an item (e.g. a text-only note), keeping the note and its edits. */
-    suspend fun retry(tiktokId: String, url: String): EnqueueResult =
-        enqueue(listOf(Request(url.ifBlank { TikTokUrls.canonicalUrl(tiktokId) }, tiktokId, QueueSource.RETRY, null, true)))
+    /**
+     * Re-download an item (e.g. a text-only note), keeping the note and its edits. [own]: one of your
+     * own posts, fetched with your TikTok login so private ones work too.
+     */
+    suspend fun retry(tiktokId: String, url: String, own: Boolean = false): EnqueueResult =
+        enqueue(listOf(Request(url.ifBlank { TikTokUrls.canonicalUrl(tiktokId) }, tiktokId, if (own) QueueSource.PROFILE else QueueSource.RETRY, null, true)))
 
     private suspend fun enqueue(requests: List<Request>): EnqueueResult {
         var added = 0; var saved = 0; var queued = 0; var skipped = 0; var collectionUpdates = 0
@@ -135,9 +142,12 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
                         db.queue().update(
                             existing!!.copy(
                                 state = QueueState.PENDING, attempts = 0, nextAttemptAt = 0, lastError = null,
+                                // Your own posts keep their source, so they're still fetched with your login.
+                                source = if (existing.source in OWN_SOURCES) existing.source else r.source,
                                 force = r.force, updatedAt = now, savedDate = existing.savedDate ?: r.date,
                                 collections = union(existing.collections, r.collections),
-                                mediaUrl = r.mediaUrl ?: existing.mediaUrl, caption = existing.caption ?: r.caption,
+                                // A file downloaded in the TikTok page is deleted once saved; don't point at it again.
+                                mediaUrl = r.mediaUrl ?: existing.mediaUrl?.takeUnless { stale(it) }, caption = existing.caption ?: r.caption,
                                 authorHandle = existing.authorHandle ?: r.authorHandle,
                             ),
                         )
@@ -175,6 +185,9 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
         if (added > 0 || collectionUpdates > 0) QueueWorker.start(context)
         return EnqueueResult(added, saved, queued, skipped, collectionUpdates)
     }
+
+    private fun stale(mediaUrl: String): Boolean =
+        mediaUrl.startsWith("file:") && android.net.Uri.parse(mediaUrl).path?.let { java.io.File(it).isFile } != true
 
     private fun union(existing: String?, more: List<String>): String? =
         (existing.orEmpty().split('\n') + more).map { it.trim() }.filter { it.isNotEmpty() }.distinct()

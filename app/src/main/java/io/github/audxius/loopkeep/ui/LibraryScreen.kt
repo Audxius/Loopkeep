@@ -655,7 +655,7 @@ private fun MineHeader(vm: AppViewModel, onSync: () -> Unit, onAdd: () -> Unit) 
     val handle = vm.ownHandle
     val ids by vm.ownIds.collectAsStateWithLifecycle()
     val mine = remember(all, handle, ids) {
-        all.values.filter { it.tiktokId.startsWith("own-") || it.tiktokId in ids || (handle != null && it.authorHandle.equals(handle, ignoreCase = true)) }
+        all.values.filter(vm::isOwn)
     }
     val partial = mine.count { it.status != NoteStatus.FULL.value }
     Column(

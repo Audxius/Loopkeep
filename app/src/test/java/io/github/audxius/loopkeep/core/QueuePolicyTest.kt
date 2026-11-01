@@ -27,4 +27,10 @@ class QueuePolicyTest {
         assertEquals(Decision.REQUEUE, QueuePolicy.decide(NoteStatus.TEXT_ONLY, "done", true))
         assertEquals(Decision.ADD, QueuePolicy.decide(NoteStatus.FULL, null, true))
     }
+
+    @Test fun deletedNotesComeBackOnImport() {
+        // Saved once, then the note was deleted: the old queue record must not block it.
+        assertEquals(Decision.REQUEUE, QueuePolicy.decide(null, "done", false))
+        assertEquals(Decision.SKIP_ALREADY_TRIED, QueuePolicy.decide(NoteStatus.TEXT_ONLY, null, false))
+    }
 }

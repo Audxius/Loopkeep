@@ -74,6 +74,24 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
     val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) { vm.attachVideo(item, uri); onDismiss() }
     }
+    var confirmRemove by remember(item.tiktokId) { mutableStateOf(false) }
+    if (confirmRemove) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            containerColor = Brand.Surface2,
+            title = { Text("Remove the video?") },
+            text = {
+                Text(
+                    "Deletes this post's video file. The note, caption, your notes, tags and collections stay, and the post shows as partial so you can attach the right video or retry.",
+                    color = Brand.TextSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmRemove = false; vm.removeVideo(item); onDismiss() }) { Text("Remove", color = Brand.Rose) }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel", color = Brand.TextSecondary) } },
+        )
+    }
     val tagSuggestions = remember(item.tiktokId) { vm.suggestTags(item) }
     val allCollections by vm.collections.collectAsStateWithLifecycle()
 
@@ -133,11 +151,20 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Brand.TextSecondary) }
                 Spacer(Modifier.weight(1f))
-                if (item.status != NoteStatus.FULL.value) {
+                // Attach a video to a partial post, or swap / take out the wrong one on a saved post.
+                val hasVideo = item.status == NoteStatus.FULL.value && item.videoName != null
+                if (item.status != NoteStatus.FULL.value || hasVideo) {
                     TextButton(onClick = { pickVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }) {
                         Icon(Icons.Default.VideoFile, null, tint = Brand.Peach, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Attach", color = Brand.Peach)
+                        Text(if (hasVideo) "Replace" else "Attach", color = Brand.Peach)
+                    }
+                }
+                if (hasVideo) {
+                    TextButton(onClick = { confirmRemove = true }) {
+                        Icon(Icons.Default.Close, null, tint = Brand.Rose, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Remove video", color = Brand.Rose)
                     }
                 }
                 if (item.status != NoteStatus.FULL.value) {

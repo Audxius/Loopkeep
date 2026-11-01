@@ -19,6 +19,18 @@ class OwnVideoFiles(context: Context) {
     /** The finished file for [id], if the page delivered one. */
     fun ready(id: String): File? = file(id)?.takeIf { it.length() > 0 && !File(dir, "$id.part").exists() }
 
+    fun discard(id: String) {
+        val f = file(id) ?: return
+        f.delete()
+        File(dir, "$id.part").delete()
+    }
+
+    /** Drops files nothing picked up (e.g. a sync that was cut off) after a few days. */
+    fun prune(maxAgeMs: Long = 3 * 24 * 60 * 60_000L) {
+        val cutoff = System.currentTimeMillis() - maxAgeMs
+        dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+    }
+
     fun start(id: String): Boolean {
         val f = file(id) ?: return false
         dir.mkdirs()

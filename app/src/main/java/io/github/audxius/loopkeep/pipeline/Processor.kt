@@ -98,7 +98,7 @@ class Processor(
             var ytError: String? = null
             val own = item.source == QueueSource.PROFILE || item.source == QueueSource.EXPORT_OWN
             // A file already downloaded inside the signed-in TikTok page: nothing left to fetch.
-            val local = item.mediaUrl?.startsWith("file:") == true
+            val local = item.mediaUrl?.startsWith("file:") == true && android.net.Uri.parse(item.mediaUrl).path?.let { File(it).isFile } == true
             val cookies = if (own && !local) TikTokSession.writeCookiesFile(File(context.cacheDir, "dl/cookies-$id.txt")) else null
             val yt = if (local) null else try {
                 download(canonical, tmp, "item-${item.id}", cookies)
@@ -114,7 +114,7 @@ class Processor(
             val audioFile = yt?.mediaFile?.takeIf { videoFile == null && it.extension.lowercase() in AUDIO_EXTS }
             // Own posts: TikTok won't serve private ones, but the export's direct file link may still work.
             var directError: String? = null
-            if (videoFile == null && audioFile == null && item.mediaUrl != null) {
+            if (videoFile == null && audioFile == null && item.mediaUrl != null && (local || !item.mediaUrl.startsWith("file:"))) {
                 videoFile = downloadDirect(item.mediaUrl, File(tmp, "$id-direct.mp4")).onFailure { directError = it.message }.getOrNull()
             }
             cookies?.delete()

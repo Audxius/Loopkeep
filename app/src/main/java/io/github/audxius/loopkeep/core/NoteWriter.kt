@@ -102,6 +102,22 @@ object NoteWriter {
         if (meta.imageFiles.isNotEmpty()) fm.setList(NoteKeys.IMAGES, meta.imageFiles.map { wikiLink(it) })
     }
 
+    /**
+     * Takes the video back out of a note (e.g. the wrong file was attached): it becomes partial again,
+     * keeping the caption, notes, tags, collections and cover. Returns the note and the video's file name.
+     */
+    fun removeVideo(existingText: String): Pair<String, String?> {
+        val doc = NoteDocument.parse(existingText)
+        val fm = doc.frontmatter
+        val video = fm.getString(NoteKeys.VIDEO)?.removePrefix("[[")?.removeSuffix("]]")?.ifBlank { null }
+        fm.remove(NoteKeys.VIDEO)
+        fm.remove(NoteKeys.DURATION)
+        fm.set(NoteKeys.STATUS, NoteStatus.TEXT_ONLY.value)
+        val cover = fm.getString(NoteKeys.COVER)?.removePrefix("[[")?.removeSuffix("]]")?.ifBlank { null }
+        doc.setEmbeds(listOfNotNull(cover))
+        return doc.render() to video
+    }
+
     private fun embedsFor(meta: VideoMeta): List<String> = when {
         meta.videoFile != null -> listOf(meta.videoFile)
         meta.imageFiles.isNotEmpty() -> meta.imageFiles + listOfNotNull(meta.audioFile)

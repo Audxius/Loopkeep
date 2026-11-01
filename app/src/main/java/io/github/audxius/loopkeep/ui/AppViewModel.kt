@@ -317,16 +317,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val parts = mutableListOf<String>()
 
         if (result.own.isNotEmpty()) {
+            graph.ownVideos.prune()
             setOwnPostIds(graph.settings.ownPostIds + result.own.map { it.id })
             val replaced = replaceExportPlaceholders(result.own)
-            graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle, graph.ownVideos::ready)
+            val r = graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle, graph.ownVideos::ready)
             val private = result.own.count { it.private }
             val downloaded = result.own.count { graph.ownVideos.ready(it.id) != null }
             val failed = result.own.filter { it.fileError != null }
-            val listed = if (result.expected > result.own.size) "${result.own.size} of your ${result.expected} videos (TikTok didn't list the other ${result.expected - result.own.size})" else "${result.own.size} of your videos"
-            parts += "$listed, $private of them Only me: $downloaded downloaded, saving now" +
+            val total = if (result.expected > result.own.size) "${result.own.size} of your ${result.expected} videos (TikTok didn't list the other ${result.expected - result.own.size})" else "${result.own.size} of your videos"
+            parts += "$total, ${result.own.size - private} public and $private Only me: " +
+                listOfNotNull(
+                    "${r.alreadySaved} already saved".takeIf { r.alreadySaved > 0 },
+                    "${r.added} saving now ($downloaded fetched in the TikTok page)".takeIf { r.added > 0 },
+                    "${r.alreadyQueued} already in the queue".takeIf { r.alreadyQueued > 0 && r.added == 0 },
+                ).joinToString(", ").ifEmpty { "nothing new" } +
                 (if (replaced > 0) ", $replaced export copies replaced" else "") +
-                (if (failed.isNotEmpty()) ". ${failed.size} couldn't be downloaded (${failed.first().fileError})" else "")
+                (if (failed.isNotEmpty()) ". ${failed.size} couldn't be fetched in the page (${failed.first().fileError}); the queue tries those another way" else "")
         } else if (result.ownError != null) {
             parts += "couldn't list your videos (${result.ownError})"
         }
@@ -407,8 +413,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _message.value = graph.queue.enqueueUrls(urls, QueueSource.MANUAL).summary
     }
 
+    /** One of your own posts: listed on your profile, by your handle, or added without a TikTok link. */
+    fun isOwn(item: VideoEntity): Boolean =
+        item.tiktokId.startsWith("own-") || item.tiktokId in ownIdsFlow.value ||
+            (ownHandleFlow.value?.let { item.authorHandle.equals(it, ignoreCase = true) } ?: false)
+
     fun retry(item: VideoEntity) = viewModelScope.launch {
-        _message.value = "Retry: " + graph.queue.retry(item.tiktokId, item.sourceUrl).summary
+        _message.value = "Retry: " + graph.queue.retry(item.tiktokId, item.sourceUrl, own = isOwn(item)).summary
     }
 
     fun retryFailed() = viewModelScope.launch { _message.value = "${graph.queue.retryFailed()} items requeued" }
@@ -426,11 +437,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val storage = storageOrComplain() ?: return@launch
         withBusy("Attaching video…") {
             _message.value = try {
-                graph.localImport.attach(storage, item, uri)
+                val result = graph.localImport.attach(storage, item, uri)
+                // Replacing a video with one of another type (.mov over .mp4) leaves the old file; drop it.
+                val old = item.videoName
+                if (old != null && videos.byTiktokId(item.tiktokId)?.videoName != old) {
+                    withContext(Dispatchers.IO) { runCatching { storage.deleteNamed(storage.mediaDir(), setOf(old)) } }
+                }
+                result
             } catch (e: Exception) {
                 "Could not attach: ${e.message}"
             }
             _deleteOriginal.value = graph.localImport.takeDeleteRequest()
+        }
+    }
+
+    /** Undoes an attach (or a wrong download): the post stays, partial again, without its video. */
+    fun removeVideo(item: VideoEntity) = viewModelScope.launch {
+        val storage = storageOrComplain() ?: return@launch
+        _message.value = try {
+            withContext(Dispatchers.IO) {
+                val (text, video) = io.github.audxius.loopkeep.core.NoteWriter.removeVideo(storage.readText(item.noteDocId))
+                storage.writeText(item.noteDocId, text)
+                (setOfNotNull(video, item.videoName)).takeIf { it.isNotEmpty() }?.let { storage.deleteNamed(storage.mediaDir(), it) }
+                storage.info(item.noteDocId)?.let { graph.indexer.indexNote(storage, it) }
+            }
+            "Video removed; the post is partial again. Attach the right one or retry."
+        } catch (e: Exception) {
+            "Could not remove the video: ${e.message}"
         }
     }
 
@@ -552,6 +585,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     storage.delete(item.noteDocId)
                     videos.deleteByTiktokId(item.tiktokId)
                     graph.db.queue().deleteByTiktokId(item.tiktokId)
+                    // Records keyed by link too, so importing the post again starts fresh.
+                    item.sourceUrl.ifBlank { null }?.let { graph.db.queue().deleteFinishedByUrl(it) }
+                    graph.db.queue().deleteFinishedByUrl(TikTokUrls.canonicalUrl(item.tiktokId))
+                    graph.db.queue().deleteFinishedByUrl(TikTokUrls.canonicalUrl(item.tiktokId, item.authorHandle.ifBlank { null }))
+                    graph.ownVideos.discard(item.tiktokId)
                     deleted++
                 } catch (_: Exception) {
                 }

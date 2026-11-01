@@ -117,6 +117,9 @@ interface QueueDao {
     @Query("DELETE FROM queue WHERE tiktokId = :tiktokId")
     suspend fun deleteByTiktokId(tiktokId: String)
 
+    @Query("DELETE FROM queue WHERE url = :url AND state NOT IN ('pending', 'running')")
+    suspend fun deleteFinishedByUrl(url: String)
+
     @Query("UPDATE queue SET state = 'pending', attempts = 0, nextAttemptAt = 0, lastError = NULL, updatedAt = :now WHERE state = 'failed' AND source = :source")
     suspend fun retryFailedFrom(source: String, now: Long): Int
 }
