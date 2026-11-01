@@ -61,7 +61,7 @@ TikTok only hands private videos to their owner when logged in, and Loopkeep doe
 
 1. In TikTok, open the video → *Share* → *Copy link*, and share or paste the link into Loopkeep. You get a *Partial* post with the right date.
 2. In TikTok, *Share* → *Save video* (always allowed for your own videos).
-3. In Loopkeep, open the post → *Attach video* → pick the saved file. It moves into `media/` and the post becomes *Saved*. TikTok doesn't share private captions, so you can type the caption in *Notes* (only offered while the note has none).
+3. In Loopkeep, open the post → *Attach video* → pick the saved file. The file is **moved** into `media/` (removed from your gallery/Downloads, so it isn't kept twice) and the post becomes *Saved*. TikTok doesn't share private captions, so you can type the caption in *Notes* (only offered while the note has none).
 
 The saved copy may carry TikTok's watermark; that's what TikTok's *Save video* produces. *Attach video* also works for any other post that's gone from TikTok, if you have the file.
 

@@ -1,4 +1,4 @@
-• Your own private ("Only me") videos: share the link, save the video from TikTok, then Attach video. The original post date is kept
+• Your own private ("Only me") videos: share the link, save the video from TikTok, then Attach video. The file is moved into your archive and the original post date is kept
 • Post dates now come from the post ID when TikTok shares nothing
 • Private posts show as Partial with instructions instead of Gone
 • Type a caption for posts that have none; Save is always visible in the edit sheet
