@@ -22,7 +22,7 @@ Loopkeep downloads the videos you saved on TikTok to your phone, together with t
 - **Your own feed.** Full-screen vertical swiping, loop, tap to pause, seek, mute, photo carousels with sound. No account, no algorithm, no tracking, no infinite scroll: only what you saved, newest, oldest or shuffled.
 - **Everything findable.** Full-text search over captions, tags, notes and creators, plus filters by collection, status, tag and creator.
 - **Straight from the creator.** The creator's own comments and replies under each post are saved with it, and so is the link in their bio. Tap the creator to open their TikTok profile.
-- **Organised your way.** Collections, your own tags and notes, all written back into the Markdown.
+- **Organised your way.** The home screen is your collections. Anything not in one waits in **Uncategorized** (e.g. links friends send you), ready to sort with a long-press. Your own tags and notes are written back into the Markdown too.
 - **Honest about gaps.** Counters for saved, partial, unavailable and failed posts. If a video can't be downloaded, its caption and cover are still kept and you can retry later.
 
 **The files are the product, the app is a viewer.** If Loopkeep disappears, the folder is still a complete, readable archive.
@@ -52,7 +52,7 @@ Requires Android 8.0 or newer on a 64-bit phone.
    - **Collections.** TikTok's export only has your collection names, not which videos are in them. To sort everything automatically: *Settings → Sync collections from TikTok* (or *Sync from TikTok* on the collections shelf), sign in to TikTok once (username, email or phone; for an account made with Google, tap *Use QR code* and then *Confirm in TikTok app*), and Loopkeep files every saved video into its collections and downloads any it's missing. It only reads; *Sign out* there forgets the login. By hand: long-press a post in the grid to start selecting, tap the others that belong together, then *Collection* → pick it. The same picker takes posts out again.
    - **Share a collection.** In TikTok, make the collection public and share its link to Loopkeep. Its posts are saved and filed into that collection. (TikTok often refuses to list collections to apps; if so, Loopkeep tells you, and you can add the videos one by one and file them in the edit sheet.)
    - **Paste** links in Settings.
-3. **Watch.** Tap a thumbnail or *Play*. Swipe up/down, tap to pause, drag the thin bar to seek, tap the caption to read all of it. The feed follows your current search, filters and collection.
+3. **Watch.** The home screen shows your collections and *Uncategorized*; open one, then tap a thumbnail or *Play*. Swipe up/down, tap to pause, drag the thin bar to seek, tap the caption to read all of it. The feed follows your current search, filters and collection.
 4. **Creators.** Tap the creator's name to open their TikTok profile, or their bio link right under it. If they commented on the post, the *Creator* button shows their comments and replies.
 5. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press thumbnails to select several, then file them into a collection or delete them; *Delete* in the feed removes one post.
 

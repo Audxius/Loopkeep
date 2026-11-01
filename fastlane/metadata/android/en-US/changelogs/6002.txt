@@ -1,0 +1,2 @@
+• The home screen is now your collections; anything not in one waits in Uncategorized, ready to sort
+• New collection tile
