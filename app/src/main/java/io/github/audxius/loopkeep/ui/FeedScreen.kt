@@ -122,7 +122,10 @@ fun FeedScreen(vm: AppViewModel, startTiktokId: String?) {
     val live by vm.items.collectAsStateWithLifecycle()
     // Freeze the order while watching, so new downloads or edits don't make the pager jump.
     val order = remember { live.orEmpty().map { it.tiktokId }.toMutableStateList() }
-    val byId = remember(live) { live.orEmpty().associateBy { it.tiktokId } }
+    // Look posts up in the whole library: a post must stay visible after an edit moves it out of the
+    // current filter (e.g. attaching a video to a post opened from the "Gone" filter).
+    val all by vm.allById.collectAsStateWithLifecycle()
+    val byId = remember(live, all) { live.orEmpty().associateBy { it.tiktokId } + all }
     val startIndex = remember { order.indexOf(startTiktokId).coerceAtLeast(0) }
     val snackbar = remember { SnackbarHostState() }
     MessageEffect(vm, snackbar)
