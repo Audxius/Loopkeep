@@ -190,7 +190,7 @@ fun TikTokSyncScreen(vm: AppViewModel) {
 private const val HOME = "https://www.tiktok.com/"
 private const val LOGIN = "https://www.tiktok.com/login"
 private const val LOGIN_QR = "https://www.tiktok.com/login/qrcode"
-private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+private const val DESKTOP_UA = io.github.audxius.loopkeep.pipeline.TikTokSession.USER_AGENT
 
 /**
  * Hands the QR login link to the TikTok app, which opens it in its own (signed-in) browser where the

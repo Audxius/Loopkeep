@@ -84,7 +84,7 @@
             private: !!item.privateItem,
           });
         }
-        bridge.progress('Your videos: ' + own.length);
+        bridge.progress('Your videos: ' + own.length + ' (' + own.filter(p => p.private).length + ' private)');
         if (!r.hasMore) break;
         cursor = String(r.cursor);
         await sleep(400);

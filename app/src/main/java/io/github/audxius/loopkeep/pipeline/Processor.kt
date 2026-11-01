@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.os.StatFs
 import android.util.Log
-import android.webkit.CookieManager
 import io.github.audxius.loopkeep.core.FileNames
 import io.github.audxius.loopkeep.core.NoteStatus
 import io.github.audxius.loopkeep.core.NoteWriter
@@ -97,8 +96,10 @@ class Processor(
         try {
             // 2. yt-dlp.
             var ytError: String? = null
+            val own = item.source == QueueSource.PROFILE || item.source == QueueSource.EXPORT_OWN
+            val cookies = if (own) TikTokSession.writeCookiesFile(File(context.cacheDir, "dl/cookies-$id.txt")) else null
             val yt = try {
-                download(canonical, tmp, "item-${item.id}")
+                download(canonical, tmp, "item-${item.id}", cookies)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -110,9 +111,11 @@ class Processor(
             var videoFile = yt?.mediaFile?.takeIf { info?.hasVideo != false && it.extension.lowercase() in VIDEO_EXTS }
             val audioFile = yt?.mediaFile?.takeIf { videoFile == null && it.extension.lowercase() in AUDIO_EXTS }
             // Own posts: TikTok won't serve private ones, but the export's direct file link may still work.
+            var directError: String? = null
             if (videoFile == null && audioFile == null && item.mediaUrl != null) {
-                videoFile = downloadDirect(item.mediaUrl, File(tmp, "$id-direct.mp4")).getOrNull()
+                videoFile = downloadDirect(item.mediaUrl, File(tmp, "$id-direct.mp4")).onFailure { directError = it.message }.getOrNull()
             }
+            cookies?.delete()
 
             // 3. Page data: needed for slideshows and as the fallback when yt-dlp failed.
             var pageError: String? = null
@@ -195,7 +198,12 @@ class Processor(
             )
             val noteName = writeNote(storage, meta, existing?.noteDocId, noteNames)
             val message = when (status) {
-                NoteStatus.TEXT_ONLY -> if (page?.isPrivate == true) {
+                NoteStatus.TEXT_ONLY -> if (own) {
+                    // Spell out why, so a failing private download can be diagnosed from the queue.
+                    (if (TikTokSession.isSignedIn) "Your post, but TikTok wouldn't hand over the video" else "Your post: sign in under Sync from TikTok to fetch it") +
+                        listOfNotNull(ytError?.let { "yt-dlp: $it" }, directError?.let { "file link: $it" }, if (item.mediaUrl == null) "no file link" else null)
+                            .joinToString("; ", prefix = " (", postfix = ")")
+                } else if (page?.isPrivate == true) {
                     "Private on TikTok. Save it from TikTok (Share → Save video), then open it here and tap Attach video."
                 } else {
                     "Text only: ${ytError ?: "no video file"}"
@@ -211,6 +219,7 @@ class Processor(
             if (isNoSpace(e)) Outcome.Retry("Storage full", minDelayMs = 30 * 60_000L) else Outcome.Retry(e.message ?: e.toString())
         } finally {
             tmp.deleteRecursively()
+            File(context.cacheDir, "dl/cookies-$id.txt").delete()
         }
     }
 
@@ -251,8 +260,11 @@ class Processor(
         target.parentFile?.mkdirs()
         // TikTok's file links for private posts only answer with the owner's session: the cookies the
         // TikTok sign-in screen left in the WebView cookie store, sent only to hosts they belong to.
-        val cookies = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
-        Http.download(url, target, maxBytes = 2L * 1024 * 1024 * 1024, headers = if (cookies.isNullOrBlank()) emptyMap() else mapOf("Cookie" to cookies))
+        val cookies = TikTokSession.cookieHeader(url)
+        Http.download(
+            url, target, maxBytes = 2L * 1024 * 1024 * 1024,
+            headers = if (cookies == null) emptyMap() else mapOf("Cookie" to cookies, "User-Agent" to TikTokSession.USER_AGENT),
+        )
         val isVideo = MediaMetadataRetriever().run {
             try {
                 setDataSource(target.absolutePath)
@@ -412,8 +424,8 @@ class Processor(
     }
 
     /** Runs yt-dlp so that cancelling the coroutine also kills the yt-dlp process. */
-    private suspend fun download(url: String, dir: File, processId: String): YtDlp.Result = coroutineScope {
-        val job = async(Dispatchers.IO) { ytDlp.download(url, dir, processId) }
+    private suspend fun download(url: String, dir: File, processId: String, cookies: File? = null): YtDlp.Result = coroutineScope {
+        val job = async(Dispatchers.IO) { ytDlp.download(url, dir, processId, cookies) }
         try {
             job.await()
         } catch (e: CancellationException) {

@@ -309,7 +309,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (result.own.isNotEmpty()) {
             val replaced = replaceExportPlaceholders(result.own)
             val r = graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle)
-            parts += "${result.own.size} of your videos (${r.added} to download" + (if (replaced > 0) ", $replaced export copies replaced" else "") + ")"
+            val private = result.own.count { it.private }
+            parts += "${result.own.size} of your videos, $private of them Only me (${r.added} to download" +
+                (if (replaced > 0) ", $replaced export copies replaced" else "") + ")"
         } else if (result.ownError != null) {
             parts += "couldn't list your videos (${result.ownError})"
         }

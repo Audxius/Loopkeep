@@ -42,7 +42,7 @@ class YtDlp(private val context: Context) {
      * Downloads [url] into a fresh [dir]: the best single-file format (H.264 preferred for
      * compatibility, no ffmpeg needed) plus yt-dlp's info JSON. Throws on failure.
      */
-    suspend fun download(url: String, dir: File, processId: String): Result = withContext(Dispatchers.IO) {
+    suspend fun download(url: String, dir: File, processId: String, cookies: File? = null): Result = withContext(Dispatchers.IO) {
         ensureInit()
         dir.deleteRecursively()
         dir.mkdirs()
@@ -56,6 +56,11 @@ class YtDlp(private val context: Context) {
             addOption("-S", "vcodec:h264,res:1080")
             addOption("--retries", 3)
             addOption("--socket-timeout", 30)
+            // The user's own private posts: their TikTok login, with the browser it was made in.
+            if (cookies != null) {
+                addOption("--cookies", cookies.absolutePath)
+                addOption("--user-agent", TikTokSession.USER_AGENT)
+            }
         }
         val response = YoutubeDL.getInstance().execute(request, processId)
         if (response.exitCode != 0) throw RuntimeException(response.err.ifBlank { "yt-dlp exited with ${response.exitCode}" })
