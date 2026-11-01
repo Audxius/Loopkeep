@@ -1,0 +1,3 @@
+• "Only me" videos: import your data export and keep "Save my own posts" ticked; they download with their original dates, no link or login needed
+• Settings → Add video from phone: add a saved video with the date you posted it; the file is moved, not copied
+• New setting: Show in phone gallery (off by default); videos stay in Loopkeep and Obsidian only

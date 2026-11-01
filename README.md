@@ -55,15 +55,18 @@ Requires Android 8.0 or newer on a 64-bit phone.
 4. **Creators.** Tap the creator's name to open their TikTok profile, or their bio link right under it. If they commented on the post, the *Creator* button shows their comments and replies.
 5. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press a thumbnail or use *Delete* in the feed to remove a post and its files.
 
-### Your own private ("Only me") videos
+### Your own videos, including "Only me" ones
 
-TikTok only hands private videos to their owner when logged in, and Loopkeep doesn't log in to TikTok. So it takes two steps per video, and **the original post date is kept**: every TikTok ID contains the moment it was posted.
+TikTok gives no link for "Only me" videos, and Loopkeep doesn't log in to TikTok. Two ways:
 
-1. In TikTok, open the video → *Share* → *Copy link*, and share or paste the link into Loopkeep. You get a *Partial* post with the right date.
-2. In TikTok, *Share* → *Save video* (always allowed for your own videos).
-3. In Loopkeep, open the post → *Attach video* → pick the saved file. The file is **moved** into `media/` (removed from your gallery/Downloads, so it isn't kept twice) and the post becomes *Saved*. TikTok doesn't share private captions, so you can type the caption in *Notes* (only offered while the note has none).
+- **From your data export (best).** The export lists your own posts with their exact post time and a direct download link to each video file, private ones included. When you import it, keep *Save my own posts* ticked. They're saved with their original dates and your @handle, without logging in. Those download links expire a few days after TikTok prepares the export, so import it soon after downloading it.
+- **Add video from phone.** In TikTok: *Share → Save video* on your video. In Loopkeep: *Settings → Add video from phone*, pick the file, set the date you posted it (TikTok shows it on the video) and optionally the caption. The file is **moved** into `media/` (removed from your gallery/Downloads).
 
-The saved copy may carry TikTok's watermark; that's what TikTok's *Save video* produces. *Attach video* also works for any other post that's gone from TikTok, if you have the file.
+Posts that do have a link but can't be downloaded (deleted, or private) show as *Partial*/*Gone*. If you have the file, open the post → *Attach video*; the original post date is kept, because every TikTok ID contains the moment it was posted. A file from TikTok's *Save video* may carry the watermark.
+
+### Keeping videos out of your gallery
+
+By default the videos don't show up in Google Photos or other gallery apps: Loopkeep puts a hidden `.nomedia` file in `media/`, which galleries respect and Obsidian ignores. Turn on *Settings → Show in phone gallery* if you want them there.
 
 Downloads run in the background, one at a time and a few seconds apart, and resume after interruptions. The cloud icon shows the queue, with *Retry failed*. If downloads suddenly start failing, TikTok has probably changed something: *Settings → Update yt-dlp now*, then *Retry failed*.
 

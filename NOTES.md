@@ -88,6 +88,13 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - Counters (saved / partial / gone / failed) sit at the top of the library; tapping one filters by it, and *Failed* opens the downloads screen.
 - Screenshots in `fastlane/metadata/android/en-US/images` (the F-Droid/IzzyOnDroid layout) were taken on the emulator with public posts from @tiktok, @natgeo and @nasa, using a synthetic export.
 
+**Own posts from the export, phone videos, gallery (v0.5)**
+- TikTok gives no link for "Only me" posts. The export's own-posts section (`Video → Videos → VideoList`, entries with `Date` + `VideoLink`, as read by the open-source tiktok-json-extractor) has a **direct, expiring file link** per post, private ones included. Classified as `OWN` by exact section names (`Video`, `Videos`, `Posts`, `VideoList`…); the newer guessed shape (`Post → Posts` with a post `Link`, `Title`, `WhoCanView`) is handled too. Unverified against a real export.
+- Own posts with a TikTok ID go through the normal pipeline and fall back to the direct link when TikTok refuses. Those without an ID are keyed `own-<yyyyMMddHHmmss>` (post time), downloaded from the link (4xx → "link expired" failure), and get the owner's handle from the export's profile section (`userName` under a `Profile` path only, so follower lists can't be mistaken for it). `saved` = `posted`, so own posts sort by post date.
+- *Add video from phone* creates a post keyed `own-<yyyyMMdd>-<hash>` with a user-picked date (default: the file's date), caption and handle (remembered), moving the file like *Attach video*.
+- Gallery: a `.nomedia` file in `media/` (default) keeps MediaStore/galleries out; toggled in Settings, applied on start, on folder change and on toggle, followed by a `MediaScannerConnection` scan of the folder so existing entries disappear or return immediately (verified on the emulator: 3 → 0 → 3 → 0 indexed videos).
+- Room schema v4 adds `mediaUrl`, `caption`, `authorHandle` to the queue.
+
 **Private posts and attached files (v0.4)**
 - A post ID's top 32 bits are its creation time (Unix seconds). Verified against TikTok's own dates for 3 posts (2019, Feb 2026, Oct 2026); used as the `posted` fallback when TikTok gives nothing, so private and deleted posts keep their real date.
 - TikTok answers `statusCode` 10216 (private post) or 10222 (private account) on the post page; yt-dlp reads the same codes. Those posts become `text-only` (shown as *Partial*) with a queue message explaining what to do, instead of `unavailable`.
