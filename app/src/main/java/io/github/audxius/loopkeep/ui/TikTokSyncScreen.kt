@@ -71,7 +71,7 @@ fun TikTokSyncScreen(vm: AppViewModel) {
         if (running) return
         running = true
         failed = false
-        status = "Reading your collections…"
+        status = "Reading your videos and collections…"
         val script = view.context.assets.open("collection_sync.js").bufferedReader().use { it.readText() }
             .replace("__HANDLE__", vm.ownHandle.orEmpty().filter { it.isLetterOrDigit() || it == '.' || it == '_' })
         view.evaluateJavascript(script, null)
@@ -80,7 +80,7 @@ fun TikTokSyncScreen(vm: AppViewModel) {
     DisposableEffect(Unit) { onDispose { webView?.destroy() } }
 
     Column(Modifier.fillMaxSize().background(Brand.Background)) {
-        ScreenHeader("TikTok collections", onBack = { vm.back() }) {
+        ScreenHeader("Sync from TikTok", onBack = { vm.back() }) {
             TextButton(onClick = {
                 CookieManager.getInstance().removeAllCookies(null)
                 WebStorage.getInstance().deleteAllData()
@@ -152,8 +152,8 @@ fun TikTokSyncScreen(vm: AppViewModel) {
                             main.post {
                                 running = false
                                 finished = true
-                                status = "Done. Filing your posts…"
-                                vm.applyTikTokCollections(json)
+                                status = "Done. Saving your videos and filing collections…"
+                                vm.applyTikTokSync(json)
                                 vm.back()
                             }
                         }
@@ -162,7 +162,7 @@ fun TikTokSyncScreen(vm: AppViewModel) {
                             main.post {
                                 running = false
                                 failed = true
-                                status = "Couldn't read collections: $text"
+                                status = "Couldn't read from TikTok: $text"
                             }
                         }
                     }, "LoopkeepSync")

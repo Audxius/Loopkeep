@@ -58,8 +58,8 @@ object Http {
         }
     }
 
-    fun download(url: String, target: File, maxBytes: Long = 50L * 1024 * 1024) {
-        val conn = open(url)
+    fun download(url: String, target: File, maxBytes: Long = 50L * 1024 * 1024, headers: Map<String, String> = emptyMap()) {
+        val conn = open(url).apply { headers.forEach { (k, v) -> setRequestProperty(k, v) } }
         try {
             val code = conn.responseCode
             if (code !in 200..299) throw HttpStatusException(code, url)

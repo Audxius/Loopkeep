@@ -21,6 +21,7 @@ import io.github.audxius.loopkeep.App
 import io.github.audxius.loopkeep.MainActivity
 import io.github.audxius.loopkeep.R
 import io.github.audxius.loopkeep.core.QueuePolicy
+import io.github.audxius.loopkeep.data.QueueSource
 import io.github.audxius.loopkeep.data.QueueState
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -64,7 +65,7 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             queue.update(item.copy(state = QueueState.RUNNING, updatedAt = now))
             runCatching { setForeground(foregroundInfo(done, done + queue.activeCount(), item.url)) }
 
-            val outcome = try {
+            val raw = try {
                 graph.processor.process(item, storage, noteNames)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 withContext(NonCancellable) {
@@ -77,6 +78,10 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             }
 
             val attempts = item.attempts + 1
+            // Your own posts are never left as bare failures: on the last attempt they become partial notes.
+            val outcome = if (raw is Outcome.Retry && attempts >= QueuePolicy.MAX_ATTEMPTS && item.source in OWN_SOURCES) {
+                runCatching { graph.processor.partialOwnNote(item, storage, noteNames, raw.reason) }.getOrDefault(raw)
+            } else raw
             val updated = when (outcome) {
                 is Outcome.Done -> item.copy(
                     state = QueueState.DONE, attempts = attempts, resultStatus = outcome.status.value,
@@ -140,6 +145,7 @@ class QueueWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         private const val WORK_NAME = "process-queue"
         private const val CHANNEL = "downloads"
         private const val NOTIFICATION_ID = 1001
+        private val OWN_SOURCES = setOf(QueueSource.EXPORT_OWN, QueueSource.PROFILE)
 
         fun start(context: Context, delayMs: Long = 0) {
             val request = OneTimeWorkRequestBuilder<QueueWorker>()

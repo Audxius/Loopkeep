@@ -54,6 +54,11 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_COLLECTIONS, null)?.split('\n')?.filter { it.isNotEmpty() }.orEmpty()
         set(value) = prefs.edit { putString(KEY_COLLECTIONS, value.distinct().joinToString("\n")) }
 
+    /** One-time re-run of own posts that failed before v0.7, so they end up saved or partial instead. */
+    var ownFailuresRequeued: Boolean
+        get() = prefs.getBoolean(KEY_OWN_REQUEUED, false)
+        set(value) = prefs.edit { putBoolean(KEY_OWN_REQUEUED, value) }
+
     var autoUpdateYtDlp: Boolean
         get() = prefs.getBoolean(KEY_YTDLP_AUTO, true)
         set(value) = prefs.edit { putBoolean(KEY_YTDLP_AUTO, value) }
@@ -68,5 +73,6 @@ class Settings(context: Context) {
         const val KEY_GALLERY = "show_in_gallery"
         const val KEY_OWN_HANDLE = "own_handle"
         const val KEY_COLLECTIONS = "known_collections"
+        const val KEY_OWN_REQUEUED = "own_failures_requeued"
     }
 }

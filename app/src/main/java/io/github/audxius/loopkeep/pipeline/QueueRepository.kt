@@ -7,11 +7,14 @@ import io.github.audxius.loopkeep.core.ExportSource
 import io.github.audxius.loopkeep.core.NoteStatus
 import io.github.audxius.loopkeep.core.QueuePolicy
 import io.github.audxius.loopkeep.core.QueuePolicy.Decision
+import io.github.audxius.loopkeep.core.SyncedOwnPost
 import io.github.audxius.loopkeep.core.TikTokUrls
 import io.github.audxius.loopkeep.data.AppDatabase
 import io.github.audxius.loopkeep.data.QueueItem
 import io.github.audxius.loopkeep.data.QueueSource
 import io.github.audxius.loopkeep.data.QueueState
+import java.time.Instant
+import java.time.ZoneId
 
 data class EnqueueResult(
     val added: Int,
@@ -83,6 +86,24 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
     suspend fun enqueueCollection(urls: List<String>, name: String): EnqueueResult =
         enqueue(urls.map { Request(it, TikTokUrls.extractVideoId(it), QueueSource.COLLECTION, null, false, listOf(name)) })
 
+    /**
+     * The user's own posts, listed from their profile while signed in. Each carries TikTok's file
+     * link, so private ones can be downloaded too. Posts that were only partly saved (or failed)
+     * are fetched again with the fresh link; fully saved ones are left alone.
+     */
+    suspend fun enqueueProfile(posts: List<SyncedOwnPost>, handle: String?): EnqueueResult =
+        enqueue(
+            posts.sortedBy { it.createTime }.map { p ->
+                val note = db.videos().byTiktokId(p.id)
+                Request(
+                    TikTokUrls.canonicalUrl(p.id, handle), p.id, QueueSource.PROFILE,
+                    p.createTime.takeIf { it > 0 }?.let { Instant.ofEpochSecond(it).atZone(ZoneId.systemDefault()).toLocalDate().toString() },
+                    force = note != null && note.status != NoteStatus.FULL.value,
+                    mediaUrl = p.videoUrl, caption = p.caption.ifBlank { null }, authorHandle = handle,
+                )
+            },
+        )
+
     /** Re-download an item (e.g. a text-only note), keeping the note and its edits. */
     suspend fun retry(tiktokId: String, url: String): EnqueueResult =
         enqueue(listOf(Request(url.ifBlank { TikTokUrls.canonicalUrl(tiktokId) }, tiktokId, QueueSource.RETRY, null, true)))
@@ -114,6 +135,8 @@ class QueueRepository(private val context: Context, private val db: AppDatabase)
                                 state = QueueState.PENDING, attempts = 0, nextAttemptAt = 0, lastError = null,
                                 force = r.force, updatedAt = now, savedDate = existing.savedDate ?: r.date,
                                 collections = union(existing.collections, r.collections),
+                                mediaUrl = r.mediaUrl ?: existing.mediaUrl, caption = existing.caption ?: r.caption,
+                                authorHandle = existing.authorHandle ?: r.authorHandle,
                             ),
                         )
                         added++

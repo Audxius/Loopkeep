@@ -85,6 +85,8 @@ object QueueSource {
     const val COLLECTION = "collection"
     /** Fetch creator comments and profile link for an already-saved post; no download. */
     const val REFRESH = "refresh"
+    /** One of the user's own posts, listed from their TikTok profile while signed in. */
+    const val PROFILE = "profile"
 }
 
 @Entity(tableName = "queue", indices = [Index("tiktokId"), Index("url"), Index("state", "nextAttemptAt")])

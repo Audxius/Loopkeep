@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.os.StatFs
 import android.util.Log
+import android.webkit.CookieManager
 import io.github.audxius.loopkeep.core.FileNames
 import io.github.audxius.loopkeep.core.NoteStatus
 import io.github.audxius.loopkeep.core.NoteWriter
@@ -248,7 +249,10 @@ class Processor(
     /** Downloads a direct video file link (from the export) and checks it really is a video. */
     private fun downloadDirect(url: String, target: File): Result<File> = runCatching {
         target.parentFile?.mkdirs()
-        Http.download(url, target, maxBytes = 2L * 1024 * 1024 * 1024)
+        // TikTok's file links for private posts only answer with the owner's session: the cookies the
+        // TikTok sign-in screen left in the WebView cookie store, sent only to hosts they belong to.
+        val cookies = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
+        Http.download(url, target, maxBytes = 2L * 1024 * 1024 * 1024, headers = if (cookies.isNullOrBlank()) emptyMap() else mapOf("Cookie" to cookies))
         val isVideo = MediaMetadataRetriever().run {
             try {
                 setDataSource(target.absolutePath)
@@ -271,16 +275,13 @@ class Processor(
         if (existing != null && existing.status == NoteStatus.FULL.value && !item.force) {
             return Outcome.Done(NoteStatus.FULL, existing.noteName, "Already saved")
         }
-        val url = item.mediaUrl ?: return Outcome.Fail("No download link for this post in the export")
+        val url = item.mediaUrl ?: return partialOwnNote(item, storage, noteNames, "The export has no download link for this post.")
         val tmp = File(context.cacheDir, "dl/$id")
         tmp.deleteRecursively()
         try {
             val video = downloadDirect(url, File(tmp, "$id.mp4")).getOrElse { e ->
                 return if (e is HttpStatusException && e.code in 400..499) {
-                    Outcome.Fail(
-                        "The export's download link has expired (HTTP ${e.code}). Request a fresh export and import it right away, " +
-                            "or use Settings → Add video from phone.",
-                    )
+                    partialOwnNote(item, storage, noteNames, "The export's download link has expired.")
                 } else {
                     Outcome.Retry(e.message ?: e.toString())
                 }
@@ -322,6 +323,32 @@ class Processor(
         } finally {
             tmp.deleteRecursively()
         }
+    }
+
+    /**
+     * One of the user's own posts that couldn't be downloaded: keep it as a partial note (caption and
+     * date) in My videos rather than a bare failure, so it can be completed by syncing from TikTok or
+     * attaching the file.
+     */
+    suspend fun partialOwnNote(item: QueueItem, storage: VaultStorage, noteNames: MutableSet<String>, reason: String): Outcome {
+        val id = item.tiktokId ?: return Outcome.Fail(reason)
+        val existing = db.videos().byTiktokId(id)
+        if (existing != null && existing.status == NoteStatus.FULL.value) return Outcome.Done(NoteStatus.FULL, existing.noteName, "Already saved")
+        val posted = item.savedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: TikTokUrls.postedFromId(id)
+        val handle = item.authorHandle
+        val meta = VideoMeta(
+            tiktokId = id,
+            sourceUrl = if (id.startsWith("own-")) "" else TikTokUrls.canonicalUrl(id, handle),
+            author = handle,
+            authorHandle = handle,
+            posted = posted,
+            saved = posted ?: LocalDate.now(),
+            collections = item.collections.orEmpty().split('\n').filter { it.isNotBlank() },
+            status = NoteStatus.TEXT_ONLY,
+            caption = item.caption.orEmpty(),
+        )
+        val noteName = writeNote(storage, meta, existing?.noteDocId, noteNames)
+        return Outcome.Done(NoteStatus.TEXT_ONLY, noteName, "$reason Kept as partial: sign in under Sync from TikTok to fetch it, or open it and tap Attach video.")
     }
 
     // Creator profiles are fetched once per handle per hour; a batch often has many posts per creator.

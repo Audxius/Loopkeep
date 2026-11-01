@@ -1,6 +1,7 @@
 // Runs inside tiktok.com in Loopkeep's WebView, with the user's own login. Lists the account's
-// collections and the post IDs in each, through the same web API (and request signing) TikTok's
-// page uses itself, and hands the result to the app. Reads only; changes nothing on TikTok.
+// collections and the post IDs in each, and the account's own posts (private ones included, since
+// the owner is asking), through the same web API (and request signing) TikTok's page uses itself,
+// and hands the result to the app. Reads only; changes nothing on TikTok.
 (async () => {
   const bridge = window.LoopkeepSync;
   const handle = '__HANDLE__';
@@ -42,20 +43,54 @@
     try { return JSON.parse(el ? el.textContent : '{}').__DEFAULT_SCOPE__ || {}; } catch (e) { return {}; }
   }
 
+  // The video file TikTok's own player would play. Slideshows have none.
+  function videoUrl(item) {
+    if (item.imagePost) return '';
+    const v = item.video || {};
+    const fromList = list => (list && list.length && (list[0].PlayAddr || {}).UrlList || [])[0];
+    return v.playAddr || fromList(v.bitrateInfo) || v.downloadAddr || '';
+  }
+
   try {
     const me = (scope()['webapp.app-context'] || {}).user || {};
     let secUid = me.secUid;
+    let uniqueId = me.uniqueId || handle;
     if (!secUid) {
-      const name = me.uniqueId || handle;
-      if (!name) throw new Error('Could not tell which account is signed in');
+      if (!uniqueId) throw new Error('Could not tell which account is signed in');
       // The profile page carries the account's secUid in its embedded data.
-      const html = await (await fetch('/@' + encodeURIComponent(name), { credentials: 'include' })).text();
+      const html = await (await fetch('/@' + encodeURIComponent(uniqueId), { credentials: 'include' })).text();
       const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
       try {
         const user = JSON.parse(m[1]).__DEFAULT_SCOPE__['webapp.user-detail'].userInfo.user;
         secUid = user.secUid;
+        uniqueId = user.uniqueId || uniqueId;
       } catch (e) {}
-      if (!secUid) throw new Error('Could not find the account @' + name);
+      if (!secUid) throw new Error('Could not find the account @' + uniqueId);
+    }
+
+    // Own posts first: a failure here shouldn't cost the collections, and vice versa.
+    const own = [];
+    let ownError = '';
+    try {
+      for (let cursor = '0', page = 0; page < 200; page++) {
+        const r = await get('/api/post/item_list/', { secUid, count: '35', cursor, coverFormat: '2' });
+        for (const item of r.itemList || []) {
+          if (!item || !item.id) continue;
+          own.push({
+            id: String(item.id),
+            caption: item.desc || '',
+            createTime: Number(item.createTime) || 0,
+            videoUrl: videoUrl(item),
+            private: !!item.privateItem,
+          });
+        }
+        bridge.progress('Your videos: ' + own.length);
+        if (!r.hasMore) break;
+        cursor = String(r.cursor);
+        await sleep(400);
+      }
+    } catch (e) {
+      ownError = String(e && e.message || e);
     }
 
     const collections = [];
@@ -82,7 +117,7 @@
       bridge.progress((i + 1) + ' / ' + collections.length + ': ' + c.name + ' (' + ids.length + ')');
       await sleep(400);
     }
-    bridge.done(JSON.stringify(out));
+    bridge.done(JSON.stringify({ handle: uniqueId || '', collections: out, own, ownError }));
   } catch (e) {
     bridge.fail(String(e && e.message || e));
   }

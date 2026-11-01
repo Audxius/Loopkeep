@@ -141,6 +141,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { graph.indexer.rescan(storage) }
             .onFailure { _message.value = "Could not read the folder: ${it.message}" }
         repairEmptyNotes()
+        requeueFailedOwnPosts()
         removeAutoTags()
         runCatching { graph.applyGalleryVisibility() }
         if (graph.db.queue().activeCount() > 0) QueueWorker.start(getApplication())
@@ -170,6 +171,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         graph.settings.autoTagsCleaned = true
         if (cleaned > 0) _message.value = "Removed hashtag tags from $cleaned notes"
+    }
+
+    /** Own posts that failed before v0.7 run once more, so they end up saved or as partial notes. */
+    private suspend fun requeueFailedOwnPosts() {
+        if (graph.settings.ownFailuresRequeued) return
+        graph.db.queue().retryFailedFrom(QueueSource.EXPORT_OWN, System.currentTimeMillis())
+        graph.settings.ownFailuresRequeued = true
     }
 
     /** Re-queues notes that have no caption and no cover (left by v0.1.1 for photo posts). */
@@ -288,27 +296,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         knownCollections.value = graph.settings.knownCollections
     }
 
-    /** Files posts into the collections read from TikTok; saved posts get the name, others are downloaded. */
-    fun applyTikTokCollections(json: String) = viewModelScope.launch {
-        val synced = CollectionSync.parse(json)
-        if (synced.isEmpty()) {
-            _message.value = "TikTok listed no collections for this account"
-            return@launch
+    /**
+     * Applies what the TikTok sign-in screen read: your own posts go to My videos (downloaded with
+     * your session, private ones included), and collection posts are filed; saved posts only get
+     * the name, others are downloaded.
+     */
+    fun applyTikTokSync(json: String) = viewModelScope.launch {
+        val result = CollectionSync.parseResult(json)
+        result.handle?.let { setOwnHandle(it) }
+        val parts = mutableListOf<String>()
+
+        if (result.own.isNotEmpty()) {
+            val replaced = replaceExportPlaceholders(result.own)
+            val r = graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle)
+            parts += "${result.own.size} of your videos (${r.added} to download" + (if (replaced > 0) ", $replaced export copies replaced" else "") + ")"
+        } else if (result.ownError != null) {
+            parts += "couldn't list your videos (${result.ownError})"
         }
+
+        val synced = result.collections
         rememberCollections(synced.map { it.name })
         var filed = 0
         var downloads = 0
-        var already = 0
         for (c in synced) {
             if (c.ids.isEmpty()) continue
             val r = graph.queue.enqueueCollection(c.ids.map { TikTokUrls.canonicalUrl(it) }, c.name)
             filed += r.collectionUpdates
             downloads += r.added
-            already += r.alreadySaved
         }
-        val posts = synced.sumOf { it.ids.size }
-        _message.value = "${synced.size} collections, $posts posts: $filed being filed, $downloads new to download" +
-            if (already > 0) ", $already already there" else ""
+        if (synced.isNotEmpty()) parts += "${synced.size} collections ($filed being filed, $downloads new)"
+        _message.value = if (parts.isEmpty()) "TikTok listed nothing for this account" else parts.joinToString("; ").replaceFirstChar { it.uppercase() }
+    }
+
+    /**
+     * Posts from the export without a TikTok link are keyed `own-<post time>`. Once the profile
+     * lists the same post with its real ID, the placeholder's queue item, and its note if it never
+     * got the video, are removed so the post isn't in My videos twice.
+     */
+    private suspend fun replaceExportPlaceholders(own: List<io.github.audxius.loopkeep.core.SyncedOwnPost>): Int {
+        val storage = graph.storage() ?: return 0
+        val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        var replaced = 0
+        withContext(Dispatchers.IO) {
+            for (p in own) {
+                if (p.createTime <= 0) continue
+                val instant = java.time.Instant.ofEpochSecond(p.createTime)
+                // The export's times may be UTC or local; try both.
+                val keys = listOf(java.time.ZoneOffset.UTC, java.time.ZoneId.systemDefault())
+                    .map { "own-" + instant.atZone(it).format(stamp) }.distinct()
+                for (key in keys) {
+                    val note = videos.byTiktokId(key)
+                    if (note != null && note.status == io.github.audxius.loopkeep.core.NoteStatus.FULL.value) continue
+                    val queued = graph.db.queue().findExisting(key, "\u0000")
+                    if (note == null && queued == null) continue
+                    if (note != null) {
+                        runCatching {
+                            storage.mediaDir().let { dir -> storage.deleteNamed(dir, listOfNotNull(note.coverName).toSet()) }
+                            storage.delete(note.noteDocId)
+                        }
+                        videos.deleteByTiktokId(key)
+                    }
+                    graph.db.queue().deleteByTiktokId(key)
+                    replaced++
+                }
+            }
+        }
+        return replaced
     }
 
     fun createCollection(name: String) = rememberCollections(listOf(name))
