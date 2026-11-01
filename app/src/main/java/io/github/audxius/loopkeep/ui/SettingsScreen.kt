@@ -1,5 +1,6 @@
 package io.github.audxius.loopkeep.ui
 
+import androidx.activity.result.PickVisualMediaRequest
 import android.net.Uri
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -86,7 +87,7 @@ fun SettingsScreen(vm: AppViewModel) {
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? -> if (uri != null) vm.setFolder(uri) }
     val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) vm.readExport(uri) }
-    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) adding = uri }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? -> if (uri != null) adding = uri }
 
     Box(Modifier.fillMaxSize().background(Brand.Background)) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -130,7 +131,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     SettingRow(
                         Icons.Default.VideoFile, "Add video from phone",
                         "For your own \"Only me\" videos, which TikTok gives no link for: save it in TikTok (Share → Save video), then pick it here and set the date you posted it. The file is moved, not copied.",
-                        onClick = { pickVideo.launch(arrayOf("video/*")) }, iconTint = Brand.Gold,
+                        onClick = { pickVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }, iconTint = Brand.Gold,
                     ) { Icon(Icons.Default.ChevronRight, null, tint = Brand.TextTertiary) }
                     RowDivider()
                     SettingRow(

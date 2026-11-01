@@ -41,6 +41,11 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_OWN_HANDLE, null)
         set(value) = prefs.edit { putString(KEY_OWN_HANDLE, value) }
 
+    /** IDs of the posts TikTok listed on the user's own profile, so they show in My videos whatever handle a note carries. */
+    var ownPostIds: Set<String>
+        get() = prefs.getString(KEY_OWN_IDS, null)?.split(',')?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+        set(value) = prefs.edit { putString(KEY_OWN_IDS, value.joinToString(",")) }
+
     /** One-time removal of the hashtag tags v0.1–v0.2 wrote automatically. */
     var autoTagsCleaned: Boolean
         get() = prefs.getBoolean(KEY_AUTO_TAGS_CLEANED, false)
@@ -72,6 +77,7 @@ class Settings(context: Context) {
         const val KEY_AUTO_TAGS_CLEANED = "auto_tags_cleaned"
         const val KEY_GALLERY = "show_in_gallery"
         const val KEY_OWN_HANDLE = "own_handle"
+        const val KEY_OWN_IDS = "own_post_ids"
         const val KEY_COLLECTIONS = "known_collections"
         const val KEY_OWN_REQUEUED = "own_failures_requeued"
     }

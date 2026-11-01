@@ -17,6 +17,8 @@ data class LibraryFilter(
     val mine: Boolean = false,
     /** The user's @handle, if known; their own posts are kept out of Uncategorized. */
     val ownHandle: String? = null,
+    /** IDs of posts listed on the user's own profile (numeric, so safe to inline). */
+    val ownIds: Set<String> = emptySet(),
     val order: FeedOrder = FeedOrder.NEWEST,
     val shuffleSeed: Long = 1,
 ) {
@@ -35,7 +37,12 @@ data class LibraryFilter(
         authorHandle?.let { where += "videos.authorHandle = ?"; args += it }
         collection?.let { where += "videos.collections LIKE ?"; args += "%\n$it\n%" }
         if (uncategorized) where += "REPLACE(IFNULL(videos.collections, ''), char(10), '') = ''"
-        val own = if (ownHandle != null) "(videos.tiktokId LIKE 'own-%' OR videos.authorHandle = ?)" else "videos.tiktokId LIKE 'own-%'"
+        val ids = ownIds.filter { id -> id.all(Char::isDigit) }
+        val own = buildList {
+            add("videos.tiktokId LIKE 'own-%'")
+            if (ownHandle != null) add("videos.authorHandle = ? COLLATE NOCASE")
+            if (ids.isNotEmpty()) add("videos.tiktokId IN (" + ids.joinToString(",") { "'$it'" } + ")")
+        }.joinToString(" OR ", "(", ")")
         if (mine) { where += own; ownHandle?.let { args += it } }
         if (uncategorized) { where += "NOT $own"; ownHandle?.let { args += it } }
         val whereSql = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")

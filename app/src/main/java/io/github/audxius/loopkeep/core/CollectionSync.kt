@@ -25,6 +25,8 @@ data class SyncResult(
     val own: List<SyncedOwnPost>,
     /** Why the own posts couldn't be listed, if they couldn't; collections may still be fine. */
     val ownError: String?,
+    /** How many posts the profile says it has (0 if unknown). */
+    val expected: Int = 0,
 )
 
 object CollectionSync {
@@ -58,6 +60,7 @@ object CollectionSync {
                 )
             }.distinctBy { it.id },
             ownError = obj.string("ownError")?.ifBlank { null },
+            expected = ((obj["expected"] as? JsonPrimitive)?.longOrNull ?: 0).toInt().coerceIn(0, 100_000),
         )
     }
 

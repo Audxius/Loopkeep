@@ -55,8 +55,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // The user's @handle decides what counts as their own posts (My videos) and keeps them out of Uncategorized.
     private val ownHandleFlow = MutableStateFlow(graph.settings.ownHandle)
+    private val ownIdsFlow = MutableStateFlow(graph.settings.ownPostIds)
+    private val ownerFlow = combine(ownHandleFlow, ownIdsFlow) { h, ids -> h to ids }
+    /** IDs of posts listed on your profile by the last syncs. */
+    val ownIds: StateFlow<Set<String>> = ownIdsFlow.asStateFlow()
 
-    private val _filter = MutableStateFlow(LibraryFilter(order = graph.settings.feedOrder, shuffleSeed = System.currentTimeMillis(), ownHandle = graph.settings.ownHandle))
+    private val _filter = MutableStateFlow(LibraryFilter(order = graph.settings.feedOrder, shuffleSeed = System.currentTimeMillis(), ownHandle = graph.settings.ownHandle, ownIds = graph.settings.ownPostIds))
     val filter: StateFlow<LibraryFilter> = _filter.asStateFlow()
 
     val items: StateFlow<List<VideoEntity>?> = _filter
@@ -87,11 +91,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val uncategorizedCount: StateFlow<Int> = ownHandleFlow.flatMapLatest { videos.observe(LibraryFilter(uncategorized = true, ownHandle = it).toQuery()) }
+    val uncategorizedCount: StateFlow<Int> = ownerFlow.flatMapLatest { (h, ids) -> videos.observe(LibraryFilter(uncategorized = true, ownHandle = h, ownIds = ids).toQuery()) }
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    val mineCount: StateFlow<Int> = ownHandleFlow.flatMapLatest { videos.observe(LibraryFilter(mine = true, ownHandle = it).toQuery()) }
+    val mineCount: StateFlow<Int> = ownerFlow.flatMapLatest { (h, ids) -> videos.observe(LibraryFilter(mine = true, ownHandle = h, ownIds = ids).toQuery()) }
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -218,7 +222,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         ownHandleFlow.value = handle
         _filter.update { it.copy(ownHandle = handle) }
     }
-    fun clearFilters() = _filter.update { LibraryFilter(order = it.order, shuffleSeed = it.shuffleSeed, ownHandle = it.ownHandle) }
+
+    private fun setOwnPostIds(ids: Set<String>) {
+        graph.settings.ownPostIds = ids
+        ownIdsFlow.value = ids
+        _filter.update { it.copy(ownIds = ids) }
+    }
+    fun clearFilters() = _filter.update { LibraryFilter(order = it.order, shuffleSeed = it.shuffleSeed, ownHandle = it.ownHandle, ownIds = it.ownIds) }
 
     fun setOrder(order: FeedOrder) {
         graph.settings.feedOrder = order
@@ -307,12 +317,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val parts = mutableListOf<String>()
 
         if (result.own.isNotEmpty()) {
+            setOwnPostIds(graph.settings.ownPostIds + result.own.map { it.id })
             val replaced = replaceExportPlaceholders(result.own)
             graph.queue.enqueueProfile(result.own, result.handle ?: graph.settings.ownHandle, graph.ownVideos::ready)
             val private = result.own.count { it.private }
             val downloaded = result.own.count { graph.ownVideos.ready(it.id) != null }
             val failed = result.own.filter { it.fileError != null }
-            parts += "${result.own.size} of your videos, $private of them Only me: $downloaded downloaded, saving now" +
+            val listed = if (result.expected > result.own.size) "${result.own.size} of your ${result.expected} videos (TikTok didn't list the other ${result.expected - result.own.size})" else "${result.own.size} of your videos"
+            parts += "$listed, $private of them Only me: $downloaded downloaded, saving now" +
                 (if (replaced > 0) ", $replaced export copies replaced" else "") +
                 (if (failed.isNotEmpty()) ". ${failed.size} couldn't be downloaded (${failed.first().fileError})" else "")
         } else if (result.ownError != null) {
@@ -418,6 +430,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 "Could not attach: ${e.message}"
             }
+            _deleteOriginal.value = graph.localImport.takeDeleteRequest()
         }
     }
 
@@ -433,6 +446,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun fileDate(uri: Uri): java.time.LocalDate? = graph.localImport.fileDate(uri)
 
+    private val _deleteOriginal = MutableStateFlow<android.content.IntentSender?>(null)
+
+    /** Android's prompt to remove the gallery original of a video just moved into the archive. */
+    val deleteOriginal: StateFlow<android.content.IntentSender?> = _deleteOriginal.asStateFlow()
+    fun deleteOriginalShown() { _deleteOriginal.value = null }
+
     /** A video from the phone as a new post, e.g. your own "Only me" videos, which have no link. */
     fun addLocalVideo(uri: Uri, posted: java.time.LocalDate, caption: String, handle: String?) = viewModelScope.launch {
         val storage = storageOrComplain() ?: return@launch
@@ -444,6 +463,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 "Could not add: ${e.message}"
             }
+            _deleteOriginal.value = graph.localImport.takeDeleteRequest()
         }
     }
 

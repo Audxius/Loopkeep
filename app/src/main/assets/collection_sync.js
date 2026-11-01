@@ -91,45 +91,57 @@
     const me = (scope()['webapp.app-context'] || {}).user || {};
     let secUid = me.secUid;
     let uniqueId = me.uniqueId || handle;
-    if (!secUid) {
-      if (!uniqueId) throw new Error('Could not tell which account is signed in');
-      // The profile page carries the account's secUid in its embedded data.
-      const html = await (await fetch('/@' + encodeURIComponent(uniqueId), { credentials: 'include' })).text();
-      const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+    // How many posts the profile says it has, to check the listing found them all.
+    let expected = 0;
+    if (uniqueId) {
+      // The profile page carries the account's secUid and post count in its embedded data.
       try {
-        const user = JSON.parse(m[1]).__DEFAULT_SCOPE__['webapp.user-detail'].userInfo.user;
-        secUid = user.secUid;
-        uniqueId = user.uniqueId || uniqueId;
+        const html = await (await fetch('/@' + encodeURIComponent(uniqueId), { credentials: 'include' })).text();
+        const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+        const info = JSON.parse(m[1]).__DEFAULT_SCOPE__['webapp.user-detail'].userInfo;
+        secUid = secUid || info.user.secUid;
+        uniqueId = info.user.uniqueId || uniqueId;
+        expected = Number((info.stats || info.statsV2 || {}).videoCount) || 0;
       } catch (e) {}
-      if (!secUid) throw new Error('Could not find the account @' + uniqueId);
     }
+    if (!secUid) throw new Error(uniqueId ? 'Could not find the account @' + uniqueId : 'Could not tell which account is signed in');
 
     // Own posts first: a failure here shouldn't cost the collections, and vice versa.
     const own = [];
     let ownError = '';
-    try {
-      for (let cursor = '0', page = 0; page < 200; page++) {
-        const r = await get('/api/post/item_list/', { secUid, count: '35', cursor, coverFormat: '2' });
-        for (const item of r.itemList || []) {
-          if (!item || !item.id) continue;
-          const urls = videoUrls(item);
-          own.push({
-            id: String(item.id),
-            caption: item.desc || '',
-            createTime: Number(item.createTime) || 0,
-            videoUrl: urls[0] || '',
-            urls,
-            private: !!item.privateItem,
-          });
-        }
-        bridge.progress('Your videos: ' + own.length + ' (' + own.filter(p => p.private).length + ' private)');
-        if (!r.hasMore) break;
-        cursor = String(r.cursor);
-        await sleep(400);
-      }
-    } catch (e) {
-      ownError = String(e && e.message || e);
+    function add(item) {
+      if (!item || !item.id || own.some(p => p.id === String(item.id))) return;
+      const urls = videoUrls(item);
+      own.push({
+        id: String(item.id),
+        caption: item.desc || '',
+        createTime: Number(item.createTime) || 0,
+        videoUrl: urls[0] || '',
+        urls,
+        private: !!item.privateItem,
+      });
     }
+    // TikTok's list sometimes leaves a post out (pinned, just posted, or at a page boundary), so it is
+    // read newest first and, if posts are still missing, oldest first, and the two are merged.
+    for (const order of ['0', '2']) {
+      try {
+        for (let cursor = '0', page = 0; page < 200; page++) {
+          const r = await get('/api/post/item_list/', {
+            secUid, count: '35', cursor, coverFormat: '2', needPinnedItemIds: 'true', post_item_list_request_type: order,
+          });
+          for (const item of r.itemList || []) add(item);
+          bridge.progress('Your videos: ' + own.length + (expected ? ' of ' + expected : '') + ' (' + own.filter(p => p.private).length + ' Only me)');
+          if (!r.hasMore || !(r.itemList || []).length) break;
+          cursor = String(r.cursor);
+          await sleep(400);
+        }
+      } catch (e) {
+        ownError = String(e && e.message || e);
+      }
+      if (expected && own.length >= expected) break;
+      await sleep(400);
+    }
+    if (own.length) ownError = '';
 
     // Download your own videos the app doesn't have yet right here, inside your signed-in TikTok page,
     // so TikTok sees exactly the browser it handed the file link to. Each file is passed to the app
@@ -168,7 +180,7 @@
       bridge.progress((i + 1) + ' / ' + collections.length + ': ' + c.name + ' (' + ids.length + ')');
       await sleep(400);
     }
-    bridge.done(JSON.stringify({ handle: uniqueId || '', collections: out, own, ownError }));
+    bridge.done(JSON.stringify({ handle: uniqueId || '', collections: out, own, ownError, expected }));
   } catch (e) {
     bridge.fail(String(e && e.message || e));
   }

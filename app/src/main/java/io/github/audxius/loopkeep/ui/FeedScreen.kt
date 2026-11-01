@@ -1,5 +1,6 @@
 package io.github.audxius.loopkeep.ui
 
+import androidx.activity.result.PickVisualMediaRequest
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -522,7 +523,7 @@ private fun Slideshow(item: VideoEntity) {
 @Composable
 private fun UnavailableCard(item: VideoEntity, onRetry: () -> Unit, onAttach: (android.net.Uri) -> Unit) {
     val context = LocalContext.current
-    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) onAttach(uri) }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onAttach(uri) }
     Box(Modifier.fillMaxSize()) {
         item.coverUri?.let {
             AsyncImage(
@@ -545,7 +546,7 @@ private fun UnavailableCard(item: VideoEntity, onRetry: () -> Unit, onAttach: (a
                 },
                 color = Brand.TextSecondary, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium,
             )
-            GradientButton("Attach video", onClick = { pickVideo.launch(arrayOf("video/*")) }, icon = Icons.Default.VideoFile)
+            GradientButton("Attach video", onClick = { pickVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }, icon = Icons.Default.VideoFile)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     Modifier.clip(CircleShape).background(Brand.Surface3).clickable(onClick = onRetry).padding(horizontal = 18.dp, vertical = 14.dp),

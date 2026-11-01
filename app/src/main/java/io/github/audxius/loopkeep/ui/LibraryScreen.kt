@@ -1,5 +1,6 @@
 package io.github.audxius.loopkeep.ui
 
+import androidx.activity.result.PickVisualMediaRequest
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -202,7 +203,7 @@ fun LibraryScreen(vm: AppViewModel) {
     val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) vm.readExport(uri)
     }
-    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) adding = uri }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? -> if (uri != null) adding = uri }
 
     // Two places on the home screen: the collections, and My videos (your own posts), each a tab.
     val mineTab = filter.mine && filter.collection == null && !filter.uncategorized
@@ -241,7 +242,7 @@ fun LibraryScreen(vm: AppViewModel) {
             } else {
                 if (mineTab) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        MineHeader(vm, onSync = { vm.open(Screen.TikTokSync) }, onAdd = { pickVideo.launch(arrayOf("video/*")) })
+                        MineHeader(vm, onSync = { vm.open(Screen.TikTokSync) }, onAdd = { pickVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) })
                     }
                 } else {
                     if (filter.collection == null && !filter.uncategorized) {
@@ -652,7 +653,10 @@ private fun CollectionCard(name: String, count: Int, covers: List<String>, modif
 private fun MineHeader(vm: AppViewModel, onSync: () -> Unit, onAdd: () -> Unit) {
     val all by vm.allById.collectAsStateWithLifecycle()
     val handle = vm.ownHandle
-    val mine = remember(all, handle) { all.values.filter { it.tiktokId.startsWith("own-") || (handle != null && it.authorHandle == handle) } }
+    val ids by vm.ownIds.collectAsStateWithLifecycle()
+    val mine = remember(all, handle, ids) {
+        all.values.filter { it.tiktokId.startsWith("own-") || it.tiktokId in ids || (handle != null && it.authorHandle.equals(handle, ignoreCase = true)) }
+    }
     val partial = mine.count { it.status != NoteStatus.FULL.value }
     Column(
         Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(22.dp))

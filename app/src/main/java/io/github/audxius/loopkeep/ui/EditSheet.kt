@@ -1,5 +1,6 @@
 package io.github.audxius.loopkeep.ui
 
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -70,7 +71,7 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
     val collections = remember(item.tiktokId) { mutableStateListOf(*item.collectionList.toTypedArray()) }
     var notes by remember(item.tiktokId) { mutableStateOf(item.notes) }
     var caption by remember(item.tiktokId) { mutableStateOf("") }
-    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) { vm.attachVideo(item, uri); onDismiss() }
     }
     val tagSuggestions = remember(item.tiktokId) { vm.suggestTags(item) }
@@ -133,7 +134,7 @@ fun EditSheet(vm: AppViewModel, item: VideoEntity, onDismiss: () -> Unit) {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = Brand.TextSecondary) }
                 Spacer(Modifier.weight(1f))
                 if (item.status != NoteStatus.FULL.value) {
-                    TextButton(onClick = { pickVideo.launch(arrayOf("video/*")) }) {
+                    TextButton(onClick = { pickVideo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }) {
                         Icon(Icons.Default.VideoFile, null, tint = Brand.Peach, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Attach", color = Brand.Peach)

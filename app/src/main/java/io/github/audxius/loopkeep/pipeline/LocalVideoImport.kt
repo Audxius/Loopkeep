@@ -1,10 +1,13 @@
 package io.github.audxius.loopkeep.pipeline
 
 import android.content.Context
+import android.content.IntentSender
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import io.github.audxius.loopkeep.core.FileNames
 import io.github.audxius.loopkeep.core.NoteStatus
@@ -93,14 +96,34 @@ class LocalVideoImport(private val context: Context, private val indexer: Indexe
             }
         }
 
-    /** The date a file was last modified, as a starting point for the date picker. */
-    fun fileDate(source: Uri): LocalDate? = runCatching {
-        context.contentResolver.query(source, arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null)?.use { c ->
-            if (c.moveToFirst() && !c.isNull(0)) {
-                java.time.Instant.ofEpochMilli(c.getLong(0)).atZone(ZoneId.systemDefault()).toLocalDate()
-            } else null
+    /** When the video was taken (gallery) or last modified (files), as a starting point for the date picker. */
+    fun fileDate(source: Uri): LocalDate? =
+        listOf(MediaStore.MediaColumns.DATE_TAKEN, DocumentsContract.Document.COLUMN_LAST_MODIFIED).firstNotNullOfOrNull { column ->
+            runCatching {
+                context.contentResolver.query(source, arrayOf(column), null, null, null)?.use { c ->
+                    if (c.moveToFirst() && !c.isNull(0) && c.getLong(0) > 0) {
+                        java.time.Instant.ofEpochMilli(c.getLong(0)).atZone(ZoneId.systemDefault()).toLocalDate()
+                    } else null
+                }
+            }.getOrNull()
         }
-    }.getOrNull()
+
+    @Volatile private var deleteRequest: IntentSender? = null
+
+    /**
+     * Android's "Allow Loopkeep to delete this video?" prompt for an original picked from the
+     * gallery, which the picker only lends read access to. Taken once by the UI, which shows it.
+     */
+    fun takeDeleteRequest(): IntentSender? = deleteRequest.also { deleteRequest = null }
+
+    /** The gallery item behind a photo-picker link (its last segment is the media ID), on Android 11+. */
+    private fun galleryDeleteRequest(source: Uri): IntentSender? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val media = if (source.authority == MediaStore.AUTHORITY && source.pathSegments.firstOrNull() == "picker") {
+            source.lastPathSegment?.toLongOrNull()?.let { android.content.ContentUris.withAppendedId(MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL), it) }
+        } else if (source.authority == MediaStore.AUTHORITY) source else null
+        return media?.let { runCatching { MediaStore.createDeleteRequest(context.contentResolver, listOf(it)).intentSender }.getOrNull() }
+    }
 
     private fun copyAndProbe(source: Uri, dir: File, id: String, wantFrame: Boolean): Probed {
         val resolver = context.contentResolver
@@ -148,6 +171,10 @@ class LocalVideoImport(private val context: Context, private val indexer: Indexe
      */
     private fun finishMove(source: Uri, name: String?, success: String): String {
         val removed = runCatching { DocumentsContract.deleteDocument(context.contentResolver, source) }.getOrDefault(false)
+        if (!removed) galleryDeleteRequest(source)?.let {
+            deleteRequest = it
+            return success
+        }
         return if (removed) success else "$success. The original${name?.let { " ($it)" } ?: ""} couldn't be removed; delete it yourself if you like."
     }
 

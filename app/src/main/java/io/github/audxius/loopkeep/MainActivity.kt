@@ -68,6 +68,16 @@ private fun Root(vm: AppViewModel) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
+    // A video moved in from the gallery: Android asks before its original is removed.
+    val deleteOriginal by vm.deleteOriginal.collectAsStateWithLifecycle()
+    val confirmDelete = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {}
+    LaunchedEffect(deleteOriginal) {
+        deleteOriginal?.let {
+            vm.deleteOriginalShown()
+            runCatching { confirmDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(it).build()) }
+        }
+    }
+
     if (folder == null) {
         SetupScreen(vm)
         return
