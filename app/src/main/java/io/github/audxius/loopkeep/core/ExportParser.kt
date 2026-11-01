@@ -123,8 +123,12 @@ object ExportParser {
             val s = segment.lowercase().replace('_', ' ')
             // The owner's own posts: "Video" → "Videos" → "VideoList", or "Post" → "Posts".
             if (Regex("""^(videos?|posts?|video ?list|my videos|your videos|your posts|uploads?)$""").matches(s.trim())) return ExportSource.OWN
-            if (Regex("""(^|[^a-z])like|likelist|liked""").containsMatchIn(s) && !s.contains("favorite video")) return ExportSource.LIKED
-            if (Regex("""favou?rite|collect|saved|bookmark""").containsMatchIn(s)) return ExportSource.SAVED
+            val isLike = Regex("""(^|[^a-z])like|likelist|liked""").containsMatchIn(s) && !s.contains("favorite video")
+            val isSaved = Regex("""favou?rite|collect|saved|bookmark""").containsMatchIn(s)
+            // "Likes and Favorites" (newer exports) names both lists; the section inside decides.
+            if (isLike && isSaved) continue
+            if (isLike) return ExportSource.LIKED
+            if (isSaved) return ExportSource.SAVED
             if (Regex("""brows|watch|history|share|post|upload|comment|message|chat|sound|effect|hashtag""").containsMatchIn(s)) return ExportSource.OTHER
         }
         return ExportSource.OTHER

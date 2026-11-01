@@ -75,6 +75,7 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - `saved:` is the export date if known, else the date it was queued (share/paste).
 - `type:` is written only for slideshows (`type: slideshow`, with `images:` and `audio:` when present). Videos omit it; absent means video.
 - Cover files are always JPEG (`<id>.jpg`): WebP/HEIC covers are re-encoded. **Fallback:** if no TikTok cover can be fetched, a frame from the video is used. The note doesn't record which source was used.
+- Export sections are classified by the outermost name that says something; a name that mentions both likes and favourites (newer exports group them as "Likes and Favorites") is skipped so the inner section ("Favorite Videos" vs "Like List") decides. Found by a real import in v0.4, where all favourites were counted as likes.
 - Importing: favourites ("saved") are queued by default; liked videos are an opt-in checkbox. Links from watch history, your own posts, and so on are counted and ignored. Dedupe is by video ID, then by URL for unresolved short links. A video already saved `full` is skipped; text-only/unavailable notes are not re-queued unless you press Retry.
 - The feed freezes its order when opened, so new downloads or edits don't make the pager jump. Shuffle is a stable pseudo-random order per shuffle seed.
 - Release `versionCode` = `major*1_000_000 + minor*1_000 + patch` from the tag (`v1.2.3` → `1002003`). Minor and patch must stay below 1000; the workflow and `release.sh` enforce this.
