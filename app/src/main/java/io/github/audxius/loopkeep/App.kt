@@ -57,6 +57,14 @@ class AppGraph(private val app: Application) {
         settings.setFolder(uri)
     }
 
+    /** Applies the "Show in phone gallery" setting to the folder and asks Android to rescan it. */
+    suspend fun applyGalleryVisibility() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val storage = storage() ?: return@withContext
+        val path = runCatching { storage.setGalleryVisible(settings.showInGallery) }.getOrNull() ?: return@withContext
+        val files = java.io.File(path).listFiles()?.map { it.path }.orEmpty() + path
+        android.media.MediaScannerConnection.scanFile(app, files.toTypedArray(), null, null)
+    }
+
     /** yt-dlp breaks whenever TikTok changes things; keep it fresh without bothering the user. */
     suspend fun maybeAutoUpdateYtDlp() {
         if (!settings.autoUpdateYtDlp) return

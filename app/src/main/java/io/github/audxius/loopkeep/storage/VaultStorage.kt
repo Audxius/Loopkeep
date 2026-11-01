@@ -151,11 +151,35 @@ class VaultStorage(private val resolver: ContentResolver, val treeUri: Uri) {
     fun deleteNamed(parentId: String, names: Set<String>): Int =
         if (names.isEmpty()) 0 else listChildren(parentId).filter { it.name in names }.count { delete(it.documentId) }
 
+    /**
+     * Hides or shows media/ in gallery apps with a `.nomedia` file. Obsidian ignores dot-files, so the
+     * vault is unaffected. Returns the folder's file-system path (for a media rescan) when known.
+     */
+    fun setGalleryVisible(visible: Boolean): String? {
+        val media = mediaDir()
+        val marker = listChildren(media).firstOrNull { it.name == NOMEDIA }
+        if (visible && marker != null) delete(marker.documentId)
+        if (!visible && marker == null) {
+            DocumentsContract.createDocument(resolver, uriOf(media), "application/octet-stream", NOMEDIA)
+        }
+        return filesystemPath(media)
+    }
+
+    /** "primary:Documents/Vault/media" → "/storage/emulated/0/Documents/Vault/media" (external storage provider only). */
+    private fun filesystemPath(documentId: String): String? {
+        val volume = documentId.substringBefore(':', "")
+        val rel = documentId.substringAfter(':', "")
+        if (treeUri.authority != "com.android.externalstorage.documents" || volume.isEmpty()) return null
+        val root = if (volume == "primary") android.os.Environment.getExternalStorageDirectory().path else "/storage/$volume"
+        return "$root/$rel"
+    }
+
     /** Human-readable location, e.g. "primary:Obsidian/TikTok" → "Obsidian/TikTok". */
     fun displayPath(): String = rootId.substringAfter(':', rootId).ifEmpty { "/" }
 
     companion object {
         const val NOTES = "notes"
         const val MEDIA = "media"
+        const val NOMEDIA = ".nomedia"
     }
 }
