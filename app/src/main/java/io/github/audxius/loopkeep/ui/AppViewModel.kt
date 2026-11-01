@@ -53,7 +53,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val folder: StateFlow<Uri?> = graph.settings.folder
 
-    private val _filter = MutableStateFlow(LibraryFilter(order = graph.settings.feedOrder, shuffleSeed = System.currentTimeMillis()))
+    // The user's @handle decides what counts as their own posts (My videos) and keeps them out of Uncategorized.
+    private val ownHandleFlow = MutableStateFlow(graph.settings.ownHandle)
+
+    private val _filter = MutableStateFlow(LibraryFilter(order = graph.settings.feedOrder, shuffleSeed = System.currentTimeMillis(), ownHandle = graph.settings.ownHandle))
     val filter: StateFlow<LibraryFilter> = _filter.asStateFlow()
 
     val items: StateFlow<List<VideoEntity>?> = _filter
@@ -84,7 +87,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val uncategorizedCount: StateFlow<Int> = videos.observe(LibraryFilter(uncategorized = true).toQuery())
+    val uncategorizedCount: StateFlow<Int> = ownHandleFlow.flatMapLatest { videos.observe(LibraryFilter(uncategorized = true, ownHandle = it).toQuery()) }
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val mineCount: StateFlow<Int> = ownHandleFlow.flatMapLatest { videos.observe(LibraryFilter(mine = true, ownHandle = it).toQuery()) }
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -194,9 +201,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleStatus(status: String) = _filter.update { it.copy(status = if (it.status == status) null else status) }
     fun setTag(tag: String?) = _filter.update { it.copy(tag = tag) }
     fun setAuthor(handle: String?) = _filter.update { it.copy(authorHandle = handle) }
-    fun setCollection(name: String?) = _filter.update { it.copy(collection = name, uncategorized = false) }
-    fun showUncategorized() = _filter.update { it.copy(collection = null, uncategorized = true) }
-    fun clearFilters() = _filter.update { LibraryFilter(order = it.order, shuffleSeed = it.shuffleSeed) }
+    fun setCollection(name: String?) = _filter.update { it.copy(collection = name, uncategorized = false, mine = false) }
+    fun showUncategorized() = _filter.update { it.copy(collection = null, uncategorized = true, mine = false) }
+    fun showMine() = _filter.update { it.copy(collection = null, uncategorized = false, mine = true) }
+
+    private fun setOwnHandle(handle: String) {
+        graph.settings.ownHandle = handle
+        ownHandleFlow.value = handle
+        _filter.update { it.copy(ownHandle = handle) }
+    }
+    fun clearFilters() = _filter.update { LibraryFilter(order = it.order, shuffleSeed = it.shuffleSeed, ownHandle = it.ownHandle) }
 
     fun setOrder(order: FeedOrder) {
         graph.settings.feedOrder = order
@@ -261,7 +275,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val pending = _pendingImport.value ?: return@launch
         _pendingImport.value = null
         val owner = pending.scan.ownerHandle ?: graph.settings.ownHandle
-        pending.scan.ownerHandle?.let { graph.settings.ownHandle = it }
+        pending.scan.ownerHandle?.let { setOwnHandle(it) }
         rememberCollections(pending.scan.collectionNames)
         val r = graph.queue.enqueueExport(pending.scan.entries, includeLiked, includeOwn, owner)
         _message.value = "Import: ${r.summary}"
@@ -358,7 +372,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun addLocalVideo(uri: Uri, posted: java.time.LocalDate, caption: String, handle: String?) = viewModelScope.launch {
         val storage = storageOrComplain() ?: return@launch
         val h = handle?.trim()?.removePrefix("@")?.ifBlank { null }
-        h?.let { graph.settings.ownHandle = it }
+        h?.let { setOwnHandle(it) }
         withBusy("Adding video…") {
             _message.value = try {
                 graph.localImport.addNew(storage, uri, posted, caption, h)

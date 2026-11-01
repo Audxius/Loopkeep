@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -85,6 +86,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -224,7 +226,7 @@ fun LibraryScreen(vm: AppViewModel) {
                 item(span = { GridItemSpan(maxLineSpan) }) { SearchBar(filter.search, vm::setSearch) }
                 item(span = { GridItemSpan(maxLineSpan) }) { CollectionsHome(vm) }
             } else {
-                if (filter.collection == null && !filter.uncategorized) {
+                if (filter.collection == null && !filter.uncategorized && !filter.mine) {
                     item(span = { GridItemSpan(maxLineSpan) }) { SearchBar(filter.search, vm::setSearch) }
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) { ResultsLabel(vm, list?.size ?: 0) }
@@ -386,7 +388,7 @@ private fun FilterRow(vm: AppViewModel) {
                 onSelect = { vm.setOrder(it!!) }, allowClear = false,
             )
         }
-        if (collections.isNotEmpty() && filter.collection == null && !filter.uncategorized) {
+        if (collections.isNotEmpty() && filter.collection == null && !filter.uncategorized && !filter.mine) {
             item {
                 MenuChip(
                     label = filter.collection ?: "Collection", icon = Icons.Outlined.CollectionsBookmark, selected = filter.collection != null,
@@ -451,25 +453,32 @@ private fun <T> MenuChip(
     }
 }
 
-/** The home screen: Uncategorized, then every collection, as big tiles. */
+private const val MINE_KEY = "\u0000mine"
+private const val LOOSE_KEY = "\u0000loose"
+
+/** The home screen: Uncategorized, My videos, then every collection, as big tiles. */
 @Composable
 private fun CollectionsHome(vm: AppViewModel) {
     val collections by vm.collections.collectAsStateWithLifecycle()
     val uncategorized by vm.uncategorizedCount.collectAsStateWithLifecycle()
+    val mine by vm.mineCount.collectAsStateWithLifecycle()
+    val ownHandle = vm.ownHandle
     val all by vm.allById.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
     if (creating) NewCollectionDialog(onCreate = { vm.createCollection(it); creating = false }, onDismiss = { creating = false })
     // Newest post with a cover stands for each collection.
-    val covers = remember(all) {
+    val covers = remember(all, ownHandle) {
         val out = HashMap<String, String>()
-        var loose: String? = null
         for (v in all.values.sortedByDescending { it.savedSort }) {
             val cover = v.coverUri ?: continue
-            val cols = v.collectionList
-            if (cols.isEmpty() && loose == null) loose = cover
-            cols.forEach { out.putIfAbsent(it, cover) }
+            val own = v.tiktokId.startsWith("own-") || (ownHandle != null && v.authorHandle == ownHandle)
+            when {
+                own -> out.putIfAbsent(MINE_KEY, cover)
+                v.collectionList.isEmpty() -> out.putIfAbsent(LOOSE_KEY, cover)
+            }
+            v.collectionList.forEach { out.putIfAbsent(it, cover) }
         }
-        out to loose
+        out
     }
     Column(Modifier.padding(bottom = 14.dp)) {
         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -477,8 +486,9 @@ private fun CollectionsHome(vm: AppViewModel) {
             TextButton(onClick = { vm.open(Screen.TikTokSync) }) { Text("Sync from TikTok", color = Brand.Coral) }
         }
         val tiles = buildList<@Composable (Modifier) -> Unit> {
-            add { m -> CollectionTile("Uncategorized", uncategorized, covers.second, m, accent = true) { vm.showUncategorized() } }
-            collections.forEach { (name, n) -> add { m -> CollectionTile(name, n, covers.first[name], m) { vm.setCollection(name) } } }
+            add { m -> CollectionTile("Uncategorized", uncategorized, covers[LOOSE_KEY], m, icon = Icons.Default.Inbox) { vm.showUncategorized() } }
+            if (mine > 0) add { m -> CollectionTile("My videos", mine, covers[MINE_KEY], m, icon = Icons.Default.Person) { vm.showMine() } }
+            collections.forEach { (name, n) -> add { m -> CollectionTile(name, n, covers[name], m) { vm.setCollection(name) } } }
             add { m -> NewCollectionTile(m) { creating = true } }
         }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -493,7 +503,8 @@ private fun CollectionsHome(vm: AppViewModel) {
 }
 
 @Composable
-private fun CollectionTile(name: String, count: Int, cover: String?, modifier: Modifier, accent: Boolean = false, onClick: () -> Unit) {
+private fun CollectionTile(name: String, count: Int, cover: String?, modifier: Modifier, icon: ImageVector? = null, onClick: () -> Unit) {
+    val accent = icon != null
     Box(
         modifier.aspectRatio(0.72f).clip(RoundedCornerShape(18.dp))
             .background(if (accent) Brush.linearGradient(listOf(Brand.Coral.copy(alpha = 0.35f), Brand.Surface2)) else SolidColor(Brand.Surface2))
@@ -503,7 +514,7 @@ private fun CollectionTile(name: String, count: Int, cover: String?, modifier: M
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000)), startY = 120f)))
         if (accent) {
             Icon(
-                Icons.Default.Inbox, null, tint = Color.White,
+                icon!!, null, tint = Color.White,
                 modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(CircleShape).background(Color(0x88000000)).padding(6.dp).size(18.dp),
             )
         }
@@ -511,7 +522,7 @@ private fun CollectionTile(name: String, count: Int, cover: String?, modifier: M
             Text(name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 when {
-                    count == 0 && accent -> "All sorted"
+                    count == 0 && name == "Uncategorized" -> "All sorted"
                     count == 0 -> "Empty"
                     else -> "$count ${if (count == 1) "post" else "posts"}"
                 },
@@ -560,6 +571,7 @@ private fun ResultsLabel(vm: AppViewModel, count: Int) {
                 when {
                     filter.collection != null -> filter.collection!!
                     filter.uncategorized -> "Uncategorized"
+                    filter.mine -> "My videos"
                     else -> "Results"
                 },
                 style = MaterialTheme.typography.titleLarge, color = Brand.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
