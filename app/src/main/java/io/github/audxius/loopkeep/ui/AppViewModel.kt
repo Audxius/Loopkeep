@@ -84,6 +84,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val uncategorizedCount: StateFlow<Int> = videos.observe(LibraryFilter(uncategorized = true).toQuery())
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     val queueItems: StateFlow<List<QueueItem>> = graph.db.queue().observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -190,7 +194,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleStatus(status: String) = _filter.update { it.copy(status = if (it.status == status) null else status) }
     fun setTag(tag: String?) = _filter.update { it.copy(tag = tag) }
     fun setAuthor(handle: String?) = _filter.update { it.copy(authorHandle = handle) }
-    fun setCollection(name: String?) = _filter.update { it.copy(collection = name) }
+    fun setCollection(name: String?) = _filter.update { it.copy(collection = name, uncategorized = false) }
+    fun showUncategorized() = _filter.update { it.copy(collection = null, uncategorized = true) }
     fun clearFilters() = _filter.update { LibraryFilter(order = it.order, shuffleSeed = it.shuffleSeed) }
 
     fun setOrder(order: FeedOrder) {

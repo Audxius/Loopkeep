@@ -11,10 +11,12 @@ data class LibraryFilter(
     val tag: String? = null,
     val authorHandle: String? = null,
     val collection: String? = null,
+    /** Posts in no collection, e.g. links friends sent that still need sorting. */
+    val uncategorized: Boolean = false,
     val order: FeedOrder = FeedOrder.NEWEST,
     val shuffleSeed: Long = 1,
 ) {
-    val isFiltered: Boolean get() = search.isNotBlank() || status != null || tag != null || authorHandle != null || collection != null
+    val isFiltered: Boolean get() = search.isNotBlank() || status != null || tag != null || authorHandle != null || collection != null || uncategorized
 
     fun toQuery(): SimpleSQLiteQuery {
         val where = mutableListOf<String>()
@@ -28,6 +30,7 @@ data class LibraryFilter(
         tag?.let { where += "videos.tags LIKE ?"; args += "% $it %" }
         authorHandle?.let { where += "videos.authorHandle = ?"; args += it }
         collection?.let { where += "videos.collections LIKE ?"; args += "%\n$it\n%" }
+        if (uncategorized) where += "REPLACE(IFNULL(videos.collections, ''), char(10), '') = ''"
         val whereSql = if (where.isEmpty()) "" else " WHERE " + where.joinToString(" AND ")
         val orderSql = when (order) {
             FeedOrder.NEWEST -> " ORDER BY videos.savedSort DESC, videos.id DESC"
