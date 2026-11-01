@@ -55,6 +55,16 @@ Requires Android 8.0 or newer on a 64-bit phone.
 4. **Creators.** Tap the creator's name to open their TikTok profile, or their bio link right under it. If they commented on the post, the *Creator* button shows their comments and replies.
 5. **Organise.** *Notes* in the feed opens tags, collections and notes. Long-press a thumbnail or use *Delete* in the feed to remove a post and its files.
 
+### Your own private ("Only me") videos
+
+TikTok only hands private videos to their owner when logged in, and Loopkeep doesn't log in to TikTok. So it takes two steps per video, and **the original post date is kept**: every TikTok ID contains the moment it was posted.
+
+1. In TikTok, open the video → *Share* → *Copy link*, and share or paste the link into Loopkeep. You get a *Partial* post with the right date.
+2. In TikTok, *Share* → *Save video* (always allowed for your own videos).
+3. In Loopkeep, open the post → *Attach video* → pick the saved file. It moves into `media/` and the post becomes *Saved*. TikTok doesn't share private captions, so you can type the caption in *Notes* (only offered while the note has none).
+
+The saved copy may carry TikTok's watermark; that's what TikTok's *Save video* produces. *Attach video* also works for any other post that's gone from TikTok, if you have the file.
+
 Downloads run in the background, one at a time and a few seconds apart, and resume after interruptions. The cloud icon shows the queue, with *Retry failed*. If downloads suddenly start failing, TikTok has probably changed something: *Settings → Update yt-dlp now*, then *Retry failed*.
 
 ## The folder

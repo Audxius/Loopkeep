@@ -88,6 +88,13 @@ Outcome per item: `full`, `text-only`, `unavailable`, retry later (network/stora
 - Counters (saved / partial / gone / failed) sit at the top of the library; tapping one filters by it, and *Failed* opens the downloads screen.
 - Screenshots in `fastlane/metadata/android/en-US/images` (the F-Droid/IzzyOnDroid layout) were taken on the emulator with public posts from @tiktok, @natgeo and @nasa, using a synthetic export.
 
+**Private posts and attached files (v0.4)**
+- A post ID's top 32 bits are its creation time (Unix seconds). Verified against TikTok's own dates for 3 posts (2019, Feb 2026, Oct 2026); used as the `posted` fallback when TikTok gives nothing, so private and deleted posts keep their real date.
+- TikTok answers `statusCode` 10216 (private post) or 10222 (private account) on the post page; yt-dlp reads the same codes. Those posts become `text-only` (shown as *Partial*) with a queue message explaining what to do, instead of `unavailable`.
+- Private videos need the owner's session. Options considered: in-app TikTok login (WebView + cookies passed to yt-dlp) gives the original without watermark, but it's login handling the spec ruled out, TikTok often blocks WebView logins, and it would put account cookies in the app. For a handful of videos, *Save video* in TikTok + *Attach video* is simpler and needs no credentials. Chosen.
+- *Attach video* copies the picked file to `media/<id>.<ext>`, reads duration with `MediaMetadataRetriever`, makes a cover from the 1 s frame only if the note has no cover, and merges into the note (`status: full`, `video:`, embed). Caption, notes, collections and dates are kept.
+- The edit sheet offers a caption field only while the note has no caption (it uses `fillCaption`, so an existing caption is never replaced). Save moved into the sheet header so the keyboard can't hide it.
+
 **Creator comments and profile links (v0.3)**
 - yt-dlp doesn't fetch TikTok comments. The app calls TikTok's web endpoint `api/comment/list/?aid=1988&aweme_id=<id>&count=50&cursor=<n>` directly; it answered unsigned requests on 2026-10-29.
 - The creator is recognised by the comment's `label_list` entry "Creator", their numeric user id (yt-dlp `uploader_id`, page `author.id`, or profile `id`), or their handle. Their replies appear in each comment's `reply_comment` preview; they're saved with the comment they answer.
